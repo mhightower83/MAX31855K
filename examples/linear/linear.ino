@@ -1,19 +1,199 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>    // Allways include this otherwise Arduino IDE may give unhelpful error messages
 #include <debugHelper.h>
 #include <MAX31855K.h>
+MAX31855K max31855k;
 
-void setup() {
-    WiFi.persistent(false); // w/o this a flash write occurs at every boot
-    WiFi.mode(WIFI_OFF);
-    Serial.begin(115200);
-    delay(15);               // Give ESP8266 Modified Serial Monitor time to enable
+static uint32_t last_sample;
+static uint32_t last;
+static bool sample_available;       // A valid sample reading is available
+static bool sample_update = false;  // Set when new sample is read, success or fail
+static uint32_t sample_count = 0;   // number of samples read
+static uint32_t sample_bad_count = 0;
 
-    Serial.printf("\r\nLet the Show begin:\r\n");
+bool diagPrintError(Print& out, const union MAX31855K::Thermocouple& sample);
+void printReport(Print& out);
+void processKey(Print& out, int hotKey);
 
-    LOG_FAIL(max31855Init(), "max31855Init: ");
+bool max31855Init(const uint8_t cs, const uint8_t sck,
+                  const uint8_t miso, const bool swap_leads)
+{
+    // bool success =
+    // max31855k.begin(SpiPinConfig());              // HW SPI
+    // max31855k.begin(SpiPinConfig(cs));            // HW SPI w/software CS
+
+    // This should now select HW SPI when the pin assignments match up
+    bool success =
+    max31855k.begin(SPIPins(cs, sck, miso, 0)); //13)); // Software SPI
+    max31855k.setSwapLeads(swap_leads);
+    max31855k.setZeroCal(0);
+    if (!success) {
+        CONSOLE_PRINTLN("MAX31855K did not start, check pin configuration. Will try later.");
+    }
+    CONSOLE.println();
+    last_sample = last = millis();
+    return success;
 }
 
+bool max31855Loop(uint32_t interval_ms) {
+    /*
+      Temperature conversion time takes 70ms to 100ms
+    */
+    constexpr uint32_t tConv = 100; // Conversion time in ms
+
+    if (tConv > interval_ms) {
+        interval_ms = tConv;
+    }
+
+    uint32_t now = millis();
+    if ((now - last_sample) < interval_ms) {
+        return false;
+    }
+
+    sample_available = max31855k.readSample();
+    sample_update = true;
+    if (sample_available) {
+        sample_count++;
+    } else {
+        sample_bad_count++;
+    }
+    last_sample = millis();
+
+    return true;
+}
+
+// uint32_t lastErrorCount = 0;
+// void monitorErrorCount() {
+//     uint32_t currentCount = max31855k.getErrorCount();
+//     if (currentCount != lastErrorCount) {
+//         lastErrorCount = currentCount;
+//         diagPrintError(CONSOLE, max31855k.getLastError());
+//     }
+// }
+
+void printPins(Print& out) {
+    SPIPins pins = max31855k.getSPIPins();
+    out._PRINTLN("SPI Bus configuration:");
+    out._PRINTF( "  Pin Assignment:      SCK=%d, MISO=%d, MOSI=%d, CS=%d\r\n",
+                   pins._sck, pins._miso, pins._mosi, pins._cs);
+    out._PRINTF( "  Bus support:         %s\r\n", (pins._hw) ? "Hardware" : "Software");
+    out._PRINTF( "  Chip Select support: %s\r\n", (pins._softCs) ? "Software" : "Hardware");
+}
+
+void setup() {
+    CONSOLE.begin(115200);
+    delay(15);               // Give ESP8266 Modified CONSOLE Monitor time to enable
+
+    CONSOLE.printf("\r\nLet the Show begin:\r\n");
+
+    LOG_FAIL(
+        max31855Init(/* CS */ 5, /* SCK */ 14, /* MISO */ 12, /* SwapLeads */ true),
+        "max31855Init: Failed: 0x%08X", max31855k.getRaw32()
+    );
+
+    last = millis();
+
+}
+
+uint32_t report_interval_ms = 5000;
+
 void loop() {
-    max31855Loop(5000);
+    max31855Loop(0);
+
+    // Handle inferred read errors as they occur.
+    if (!sample_available && sample_update) {
+        diagPrintError(CONSOLE, max31855k.getSample());
+        sample_update = false;
+    }
+
+    if (report_interval_ms && sample_available) {
+        uint32_t now = millis();
+        if ((now - last) > report_interval_ms) {
+            printReport(CONSOLE);
+            sample_available = false;
+            sample_update = false;
+            last = now;
+        }
+    }
+
+    // monitorErrorCount();
+
+    if (CONSOLE.available() > 0) {
+        int hotKey = CONSOLE.read();
+        processKey(CONSOLE, hotKey);
+    }
+    // ...
+}
+
+bool diagPrintError(Print& out, const union MAX31855K::Thermocouple& sample) {
+    const struct MAX31855_BITMAP& parse = sample.parse;
+
+    if (max31855k.isValid(sample.raw32)) {
+        out._PRINTLN("No errors detected.");
+        return false;     // No error, nothing was printed
+
+    } else {
+        if (~0u == sample.raw32) {
+            out._PRINTLN("Internal: Check SPI Bus pin assignments and connections, reading all ones.");
+        } else
+        if (0u == sample.raw32) {
+            out._PRINTLN("Internal: Check SPI Bus pin assignments and connections, reading all zeros.");
+        } else
+        if (!(0 == parse.res && 0 == parse.res2)) {
+            out._PRINTLN("Internal: Check SPI Bus pin assignments and connections, parse.res == 0 && parse.res2 == 0 test failed.");
+        } else
+        if (parse.fault) {
+            if (parse.oc) {
+                // Onece design is working, this is the only error that should be seen.
+                out._PRINTLN("Fault: OC, Open-circuit, check thermocouple connection and wiring.");
+            }
+            if (parse.scg) {
+                out._PRINTLN("Internal Fault: SCG, Short-circuit to ground, check internal wiring");
+            }
+            if (parse.scv) {
+                out._PRINTLN("Internal Fault: SCV, Short-circuit to VCC, check internal wiring");
+            }
+            if (!(parse.oc || parse.scg || parse.scv)) {
+                out._PRINTLN("Internal: Fantom fault set without flags OC, SCG, or SCV being set");
+            }
+        } else
+        if (!(parse.oc || parse.scg || parse.scv)) {
+            out._PRINTLN("Internal: unknown error, parse.fault not set");
+        }
+        out._PRINTLN2("Total Error Count: ", (max31855k.getErrorCount()) );
+    }
+    return true;
+}
+
+
+#define DIAG_PRINT
+#ifdef DIAG_PRINT
+#endif
+
+void printReport(Print& out) {
+    // const struct MAX31855_BITMAP& parse = max31855k.getData();
+    if (max31855k.isValid()) {
+        out._PRINTLN("///////////////////////////////////////////////////////////////////////////////////////////////////");
+        out._PRINTLN2("Compensated Probe (Thermocouple) Temperature ", String((float)max31855k.getProbeE_04()  / 10000., 8) + SF(" oC"));
+        out._PRINTLN2("Device Internal (Cold-Junction) Temperature  ", String((float)max31855k.getDeviceE_04() / 10000., 8) + SF(" oC")); // degree symbol "\xC2\xB0" causes print delay
+        float probeTempC = max31855k.getLinearizedTemp();
+        if (FLT_MAX == probeTempC) {
+            out._PRINTLN2("Linearized Probe Temperature                 ", F("-overflow-"));
+        } else {
+            out._PRINTLN2("Linearized Probe Temperature                 ", String(probeTempC, 8) + SF(" oC "));
+            out._PRINTLN2("Linearized Probe Temperature                 ", String(probeTempC*1.8 + 32, 8) + SF(" oF "));
+        }
+        out.println();
+
+        sint32_t vout = 41276 * (max31855k.getProbeE_04() - max31855k.getDeviceE_04()) / 10000;
+        out._PRINTLN2("Vout: ", (vout) + SF(" nV"));
+        out._PRINTLN2("Vout: ", (max31855k.getVoutE_09()) + SF(" nV"));
+        out.println();
+
+        out._PRINTLN2("sample_count:      ", (sample_count) );
+        out._PRINTLN2("Ssample_bad_count: ", (sample_bad_count) );
+        out._PRINTLN2("getErrorCount():   ", (max31855k.getErrorCount()) );
+        out.println();
+    } else {
+      diagPrintError(out, max31855k.getSample());
+    }
 }
