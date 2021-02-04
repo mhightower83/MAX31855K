@@ -20,7 +20,7 @@
 #include <cfloat>
 
 ///////////////////////////////////////////////////////////////////////////////
-// MAX31855K Type K Thermocoupler library
+// MAX31855K Type K Thermocouple library
 //
 struct MAX31855_BITMAP {
     bool     oc:1;            // =1, thermocouple connection is open
@@ -155,6 +155,6 @@ public:
 // extern MAX31855K max31855k;
 
 //
-// End - MAX31855K Type K Thermocoupler library
+// End - MAX31855K Type K Thermocouple library
 ///////////////////////////////////////////////////////////////////////////////
 #endif

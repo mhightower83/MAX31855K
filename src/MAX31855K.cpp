@@ -99,7 +99,7 @@ void _io_commit() {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// MAX31855K Type K Thermocoupler library
+// MAX31855K Type K Thermocouple library
 //
 ALWAYS_INLINE void SPI_DELAY_100NS_MIN()
 {
@@ -416,5 +416,5 @@ float MAX31855K::getITS90()   // aka float getLinearizedTemp()
     return FLT_MAX;
 }
 //
-// End - MAX31855K Type K Thermocoupler library
+// End - MAX31855K Type K Thermocouple library
 ///////////////////////////////////////////////////////////////////////////////
