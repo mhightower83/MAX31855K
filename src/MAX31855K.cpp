@@ -26,6 +26,11 @@
 
 extern "C" uint32_t ets_get_cpu_frequency(void);
 
+///////////////////////////////////////////////////////////////////////////////
+// Tuned Delays specific to the ESP8266
+//
+#if defined(ARDUINO_ARCH_ESP8266)
+
 ALWAYS_INLINE static
 void _delay_cycles(uint32_t delay_count) {
     // ~  3 -  2,  87ns,  7 cycles, +6 => +75ns
@@ -36,60 +41,64 @@ void _delay_cycles(uint32_t delay_count) {
     // ~ 28 - 32, 462ns, 37 cycles, +75ns
     uint32_t total, time;
     __asm__ __volatile__ (
-      // "extw\n\t"      // 1 or more cycles, maybe 3
-      "rsr.ccount %[time]\n\t"
-      // "nop\n\t"
-      "extw\n\t"      // 1 or more cycles, maybe 3
-      "1:\n\t"
-      "rsr.ccount %[total]\n\t" // These ccount instruction together add 12ns to the result thanks to pipeline
-      "sub        %[total], %[total], %[time]\n\t"
-      "blt        %[total], %[delay], 1b\n\t"
-      : [total]"=&r"(total), [time]"=&r"(time)
-      : [delay]"r"(delay_count) );
+        "rsr.ccount %[time]\n\t"
+        "extw\n\t"      // 1 or more cycles, maybe 3
+        "1:\n\t"        // This loop is 6 cycles long with unavoidable pipeline stalls.
+        "rsr.ccount %[total]\n\t"
+        "sub        %[total], %[total], %[time]\n\t"
+        "blt        %[total], %[delay], 1b\n\t"
+        : [total]"=&r"(total), [time]"=&r"(time)
+        : [delay]"r"(delay_count)
+    );
 }
 
 ALWAYS_INLINE static
 void _delay_12_5ns_nop() {
     __asm__ __volatile__ (
-      "nop.n\n\t");
+        "nop.n\n\t"
+    );
 }
 
 ALWAYS_INLINE static
 void _delay_25ns_nop() {
     __asm__ __volatile__ (
-      "nop.n\n\t"
-      "nop.n\n\t");
+        "nop.n\n\t"
+        "nop.n\n\t"
+    );
 }
 
 ALWAYS_INLINE static
 void _delay_37_5ns_nop() {
     __asm__ __volatile__ (
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t");
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+    );
 }
 
 ALWAYS_INLINE static
 void _delay_50ns_nop() {
     __asm__ __volatile__ (
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t");
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+    );
 }
 
 ALWAYS_INLINE static
 void _delay_112_5ns_nop() {
     __asm__ __volatile__ (
-      "nop.n\n\t"     // 1 or more cycles, maybe 3
-      "nop.n\n\t"     // each NOP is 12.5ns at 80MHz
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t"
-      "nop.n\n\t");
+        "nop.n\n\t"     // 1 or more cycles, maybe 3
+        "nop.n\n\t"     // each NOP is 12.5ns at 80MHz
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+    );
 }
 
 ALWAYS_INLINE static
@@ -98,8 +107,13 @@ void _io_commit() {
       "extw\n\t");    // 1 or more cycles, maybe 3
 }
 
+#endif    // ARDUINO_ARCH_ESP8266
+//
 ///////////////////////////////////////////////////////////////////////////////
-// MAX31855K Type K Thermocouple library
+
+///////////////////////////////////////////////////////////////////////////////
+// Optomized delays needed for implimenting a software based SPI Bus for
+// communicating with the MAX31855.
 //
 ALWAYS_INLINE void SPI_DELAY_100NS_MIN()
 {
@@ -107,7 +121,7 @@ ALWAYS_INLINE void SPI_DELAY_100NS_MIN()
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
 #if defined(F_CPU) && (F_CPU == 160000000L)
-  _delay_cycles(14);
+    _delay_cycles(14);
 #else
   // _delay_cycles(8);
   _delay_cycles(0);   // 87ns,  7 cycles
@@ -139,6 +153,8 @@ ALWAYS_INLINE void SPI_DELAY_200NS_MIN(void)
 ///////////////////////////////////////////////////////////////////////////////
 // For tuning SPI delay code
 //
+#if defined(ARDUINO_ARCH_ESP8266)
+
 ALWAYS_INLINE uint32_t proto_SPI_DELAY_100(uint32_t cycles) {
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
@@ -163,6 +179,7 @@ ALWAYS_INLINE uint32_t proto_SPI_DELAY_100(uint32_t cycles) {
       :);
     return delta;
 }
+
 ALWAYS_INLINE uint32_t proto_SPI_DELAY_200(uint32_t cycles) {
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
@@ -178,6 +195,7 @@ ALWAYS_INLINE uint32_t proto_SPI_DELAY_200(uint32_t cycles) {
     // _delay_cycles(cycles);
     // SPI_DELAY_100NS_MIN();
     SPI_DELAY_200NS_MIN();
+
 
     __asm__ __volatile__ (
       "rsr.ccount %[delta]\n\t" // These ccount instruction together add 12ns to the result thanks to pipeline
@@ -208,10 +226,14 @@ void test_SPI_DELAY_100NS_MIN() {
   delay = proto_SPI_DELAY_200(cycles);
   CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
 }
-// end of tuning SPI delay code
+#endif // ARDUINO_ARCH_ESP8266
+//
+// end of Optomized delay and tuning SPI delay code
 ///////////////////////////////////////////////////////////////////////////////
 
-
+///////////////////////////////////////////////////////////////////////////////
+// MAX31855K Type K Thermocouple library
+//
 bool MAX31855K::begin(const SPIPins cfg)
 {
     // _cs         = cfg._cs;
