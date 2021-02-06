@@ -16,13 +16,33 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include <float.h>
 
-#define DEBUG_SKETCH
-#include <debugHelper.h>
+// #define DEBUG_SKETCH
+// #include <debugHelper.h>
 #include "MAX31855K.h"
 #include "TypeK_ITS90.h"
 
-#define DIAG_PRINT
+#ifndef DEBUGHELPER_H_
+// Fail safe defines, for when debugHelper.h is not present
+#ifndef CONSOLE_PRINTF
+#define DEBUG_PRINTF CONSOLE_PRINTF
+#define CONSOLE_PRINTF(a, ...) Serial.printf_P(PSTR(a), ##__VA_ARGS__)
+#endif
+#ifndef ALWAYS_INLINE
+#define ALWAYS_INLINE inline __attribute__ ((always_inline))
+#endif
+#ifndef NOINLINE
+#define NOINLINE __attribute__((noinline))
+#endif
+#ifdef DEBUG_ESP_PORT
+#define CONSOLE DEBUG_ESP_PORT
+#else
+#define CONSOLE Serial
+#endif
+#endif
+
+//////////////////////////////////////////////////////////////////////////////
 
 extern "C" uint32_t ets_get_cpu_frequency(void);
 
@@ -115,7 +135,7 @@ void _io_commit() {
 // Optomized delays needed for implimenting a software based SPI Bus for
 // communicating with the MAX31855.
 //
-ALWAYS_INLINE void SPI_DELAY_100NS_MIN()
+ALWAYS_INLINE void delay100nsMin()
 {
 #if defined(ARDUINO_ARCH_ESP8266)
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
@@ -133,7 +153,7 @@ ALWAYS_INLINE void SPI_DELAY_100NS_MIN()
 #endif
 }
 
-ALWAYS_INLINE void SPI_DELAY_200NS_MIN(void)
+ALWAYS_INLINE void delay200nsMin(void)
 {
 #if defined(ARDUINO_ARCH_ESP8266)
 #if defined(F_CPU) && (F_CPU == 160000000L)
@@ -151,11 +171,11 @@ ALWAYS_INLINE void SPI_DELAY_200NS_MIN(void)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// For tuning SPI delay code
+// For tuning and testing SPI delay code
 //
 #if defined(ARDUINO_ARCH_ESP8266)
 
-ALWAYS_INLINE uint32_t proto_SPI_DELAY_100(uint32_t cycles) {
+ALWAYS_INLINE uint32_t protoSPIDelay100(uint32_t cycles) {
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
     (void)cycles;
@@ -167,8 +187,8 @@ ALWAYS_INLINE uint32_t proto_SPI_DELAY_100(uint32_t cycles) {
 
 // delay test dejour
     // _delay_cycles(cycles);
-    SPI_DELAY_100NS_MIN();
-    // SPI_DELAY_200NS_MIN();
+    delay100nsMin();
+    // delay200nsMin();
 
     __asm__ __volatile__ (
       "rsr.ccount %[delta]\n\t" // These ccount instruction together add 12ns to the result thanks to pipeline
@@ -180,7 +200,7 @@ ALWAYS_INLINE uint32_t proto_SPI_DELAY_100(uint32_t cycles) {
     return delta;
 }
 
-ALWAYS_INLINE uint32_t proto_SPI_DELAY_200(uint32_t cycles) {
+ALWAYS_INLINE uint32_t protoSPIDelay200(uint32_t cycles) {
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
     (void)cycles;
@@ -193,8 +213,8 @@ ALWAYS_INLINE uint32_t proto_SPI_DELAY_200(uint32_t cycles) {
 
 // delay test dejour
     // _delay_cycles(cycles);
-    // SPI_DELAY_100NS_MIN();
-    SPI_DELAY_200NS_MIN();
+    // delay100nsMin();
+    delay200nsMin();
 
 
     __asm__ __volatile__ (
@@ -207,7 +227,7 @@ ALWAYS_INLINE uint32_t proto_SPI_DELAY_200(uint32_t cycles) {
     return delta;
 }
 NOINLINE IRAM_ATTR
-void test_SPI_DELAY_100NS_MIN() {
+void test_delay100nsMin() {
   // constexpr uint32_t cycles =  2;  //  87ns,  7 cycles +6 => +75ns
   constexpr uint32_t cycles =  8;  // 162ns, 13 cycles
   // constexpr uint32_t cycles = 14;  // 237ns, 19 cycles, +75ns
@@ -216,14 +236,14 @@ void test_SPI_DELAY_100NS_MIN() {
   // constexpr uint32_t cycles = 32;  // 462ns, 37 cycles, +75ns
 
   uint32_t delay;
-  delay = proto_SPI_DELAY_100(cycles);
+  delay = protoSPIDelay100(cycles);
   CONSOLE_PRINTF("Elapsed time for SPI_DELAY_100, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
-  delay = proto_SPI_DELAY_100(cycles);
+  delay = protoSPIDelay100(cycles);
   CONSOLE_PRINTF("Elapsed time for SPI_DELAY_100, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
   CONSOLE.println();
-  delay = proto_SPI_DELAY_200(cycles);
+  delay = protoSPIDelay200(cycles);
   CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
-  delay = proto_SPI_DELAY_200(cycles);
+  delay = protoSPIDelay200(cycles);
   CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
 }
 #endif // ARDUINO_ARCH_ESP8266
@@ -232,9 +252,10 @@ void test_SPI_DELAY_100NS_MIN() {
 ///////////////////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////////////////
-// MAX31855K Type K Thermocouple library
+// SPI Bus - melding Soft and HW based handling
+// TODO: This look very localized, maybe make into a separate common library.
 //
-bool MAX31855K::begin(const SPIPins cfg)
+bool MAX31855K::beginSPI(const SPIPins cfg)
 {
     // _cs         = cfg._cs;
     // _sck        = cfg._sck;
@@ -244,48 +265,55 @@ bool MAX31855K::begin(const SPIPins cfg)
     // _softCs     = cfg._softCs;
     _pins = cfg;
 
-    if (_pins._hw) {
+    if (_pins.hw) {
         // Try and configure Hardware SPI Bus, returns false if SPI Bus
         // hardware transfers are not supported for the pins chosen.
-        _pins._hw = SPI.pins(_pins._sck, _pins._miso, _pins._mosi, _pins._cs);
+        _pins.hw = SPI.pins(_pins.sck, _pins.miso, _pins.mosi, _pins.cs);
     }
-    if (_pins._hw) {
-        DEBUG_PRINT("HW SPI Configured ");
-        if (15 == _pins._cs) {
-            DEBUG_PRINT("w/HW CS");
+    if (_pins.hw) {
+        DEBUG_PRINTF("HW SPI Configured ");
+        if (15 == _pins.cs) {
+            DEBUG_PRINTF("w/HW CS");
             SPI.setHwCs(true);
-        } else if (0 != _pins._cs) {
-            DEBUG_PRINT("w/SW CS");
-            _pins._softCs = true;
-            digitalWrite(_pins._cs, HIGH);    // deselect
-            pinMode(_pins._cs, OUTPUT);
+        } else if (0 != _pins.cs) {
+            DEBUG_PRINTF("w/SW CS");
+            _pins.softCs = true;
+            digitalWrite(_pins.cs, HIGH);    // deselect
+            pinMode(_pins.cs, OUTPUT);
         }
         SPI.begin();
     } else {
-        DEBUG_PRINT("Soft SPI Configured");
-        digitalWrite(_pins._cs, HIGH);    // deselect
-        pinMode(_pins._cs, OUTPUT);
-        digitalWrite(_pins._sck, LOW);    // clock starts from low
-        pinMode(_pins._sck, OUTPUT);
-        pinMode(_pins._miso, INPUT);
+        DEBUG_PRINTF("Soft SPI Configured");
+        digitalWrite(_pins.cs, HIGH);    // deselect
+        pinMode(_pins.cs, OUTPUT);
+        digitalWrite(_pins.sck, LOW);    // clock starts from low
+        pinMode(_pins.sck, OUTPUT);
+        pinMode(_pins.miso, INPUT);
     }
     DEBUG_PRINTF(", Pin Assignment: SCK=%d, MISO=%d, MOSI=%d, CS=%d\r\n",
-                  _pins._sck, _pins._miso, _pins._mosi, _pins._cs);
-    SPI_DELAY_200NS_MIN();    // minimum CS# inactive time
-    return readSample();      // Test pin configuration
+                  _pins.sck, _pins.miso, _pins.mosi, _pins.cs);
+    delay200nsMin();    // minimum CS# inactive time
+    return read();      // Test pin configuration
 }
 
+// Keep keep timing parts in fast IRAM
 NOINLINE IRAM_ATTR static
-uint32_t _spi_read32(bool hw, uint8_t sck, uint8_t miso)
+//D uint32_t _spi_read32(bool hw, bool softCs, uint8_t cs, uint8_t sck, uint8_t miso)
+uint32_t _spi_read32(const SPIPins& pins)
 {
     union {
       uint32_t u32;
       uint8_t  u8[4];
     } value;
 
-    if (hw) {
+    if (pins.hw) {
         // MAX serial clock frequency 5MHz
         SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+        if (pins.softCs) {
+            // Arduino doc says CS is done after SPI.beginTransaction!
+            digitalWrite(pins.cs, LOW);  // select
+            delay100nsMin();        // wait time for first bit valid - not sure this is needed here
+        }
         for (ssize_t i = 3; i >= 0; i--) {
             value.u8[i] = SPI.transfer(0);
         }
@@ -293,52 +321,64 @@ uint32_t _spi_read32(bool hw, uint8_t sck, uint8_t miso)
     } else {
         for (size_t i = 0; i < 32; i++) {
             value.u32 <<= 1;
-            if (digitalRead(miso)) {
+            if (digitalRead(pins.miso)) {
                 value.u32 |= 1;
             }
-            digitalWrite(sck, HIGH);    // data read before rising clock edge
-            SPI_DELAY_100NS_MIN();
-            digitalWrite(sck, LOW);
-            SPI_DELAY_100NS_MIN();
+            digitalWrite(pins.sck, HIGH); // data read before rising clock edge
+            delay100nsMin();
+            digitalWrite(pins.sck, LOW);
+            delay100nsMin();
         }
     }
     return value.u32;
 }
+
 uint32_t MAX31855K::spi_read32(void)
 {
-    if (_pins._softCs) {
-        if (_pins._hw) {
-            if (LOW == digitalRead(_pins._cs)) {
+    if (_pins.softCs) {
+        if (_pins.hw) {
+            if (LOW == digitalRead(_pins.cs)) {
                 // make idle to restart process
-                digitalWrite(_pins._cs, HIGH);
-                SPI_DELAY_200NS_MIN();    // minimum CS# inactive time
+                digitalWrite(_pins.cs, HIGH);
+                delay200nsMin();    // minimum CS# inactive time
             }
         } else {
             // Check for idle state
-            if (LOW == digitalRead(_pins._cs)
-            ||  LOW != digitalRead(_pins._sck)) {
+            if (LOW == digitalRead(_pins.cs)
+            ||  LOW != digitalRead(_pins.sck)) {
                 // make idle to restart process
-                digitalWrite(_pins._cs, HIGH);
-                digitalWrite(_pins._sck, LOW);  // Start soft SPI with SCK low before CS#
-                SPI_DELAY_200NS_MIN();    // minimum CS# inactive time
+                digitalWrite(_pins.cs, HIGH);
+                digitalWrite(_pins.sck, LOW);  // Start soft SPI with SCK low before CS#
+                delay200nsMin();    // minimum CS# inactive time
             }
+            digitalWrite(_pins.cs, LOW);     // select
+            delay100nsMin();            // wait time for first bit valid
+            // Soft SPI is now ready to read the 1st bit.
         }
-        digitalWrite(_pins._cs, LOW);     // select
-        SPI_DELAY_100NS_MIN();            // wait time for first bit valid
-        // Soft SPI is now ready to read the 1st bit.
     }
 
-    uint32_t value = _spi_read32(_pins._hw, _pins._sck, _pins._miso);  // Keep the key parts in fast IRAM
+    //D uint32_t value = _spi_read32(_pins.hw, _pins.softCs, _pins.cs, _pins.sck, _pins.miso);  // Keep the key parts in fast IRAM
+    uint32_t value = _spi_read32(_pins);
 
-    digitalWrite(_pins._cs, HIGH);  // deselect slave
+    digitalWrite(_pins.cs, HIGH);  // deselect slave
     /*
       TODO: Check timing with scope with attention to the rise/fall times with
       that resister/diode level translater on SCK and CS#.
     */
     return value;
 }
+//
+///////////////////////////////////////////////////////////////////////////////
 
-sint32_t MAX31855K::_getProbeE_04() const
+///////////////////////////////////////////////////////////////////////////////
+// MAX31855K Type K Thermocouple library
+//
+bool MAX31855K::begin(const SPIPins cfg)
+{
+    return beginSPI(cfg);
+}
+
+sint32_t MAX31855K::_getProbeEM04() const
 {
     // The probe temperature (thermocouple) value provided by the MAX31855 is
     // compensated for cold junction temperature. It also assumes a linear
@@ -352,36 +392,48 @@ sint32_t MAX31855K::_getProbeE_04() const
     }
     return probe;
 }
-sint32_t MAX31855K::getProbeE_04() const
+sint32_t MAX31855K::getProbeEM04() const
 {
     if (isValid()) {
-      return _getProbeE_04();
+      return _getProbeEM04();
     }
     return INT32_MAX;
 }
 
-sint32_t MAX31855K::_getDeviceE_04() const
+sint32_t MAX31855K::_getDeviceEM04() const
 {
       return getData().internal * 625;
 }
-sint32_t MAX31855K::getDeviceE_04() const
+sint32_t MAX31855K::getDeviceEM04() const
 {
     if (isValid()) {
-        return _getDeviceE_04();
+        return _getDeviceEM04();
     }
     return INT32_MAX;
 }
 
-sint32_t MAX31855K::getVoutE_09() const // nV
+//D sint32_t MAX31855K::getVoutEM09() const // nV
+//D {
+//D     if (isValid()) {
+//D         sint32_t probe    = _getProbeEM04();
+//D         sint32_t internal = _getDeviceEM04();
+//D         // temperatures were in milli degrees - convert to degrees
+//D         sint32_t vout = 41276 * (probe - internal) / 10000; // nV
+//D         return vout;
+//D     }
+//D     return INT32_MAX;
+//D }
+
+float MAX31855K::getVout() const
 {
     if (isValid()) {
-        sint32_t probe    = _getProbeE_04();
-        sint32_t internal = _getDeviceE_04();
+        sint32_t probe    = _getProbeEM04();
+        sint32_t internal = _getDeviceEM04();
         // temperatures were in milli degrees - convert to degrees
         sint32_t vout = 41276 * (probe - internal) / 10000; // nV
-        return vout;
+        return (float)vout * 1.0E-09;
     }
-    return INT32_MAX;
+    return FLT_MAX;
 }
 
 /*
@@ -403,21 +455,11 @@ sint32_t MAX31855K::getVoutE_09() const // nV
   degrees Celsius.
 */
 inline constexpr bool is_max31855k_operation_range(const float t) {
-  return (125. >= t && -40. <= t);
+    return (125. >= t && -40. <= t);
 }
 
-float MAX31855K::getITS90()   // aka float getLinearizedTemp()
+float MAX31855K::getITS90(const float cold_junction_c, const float vout_mv)
 {
-    // Check 1st for a good sample
-    if (!isValid()) {
-        return FLT_MAX;   // I think NAN would need exceptions to handle
-                          // Caller must test for FLT_MAX to confirm success.
-    }
-
-    const float cold_junction_c = (float)getDeviceE_04() / 10000.;   // cold-junction termerature
-    const float vout_mv = (float)getVoutE_09() / 1000000.;  // voltage reading of thermocouple
-                                          // getVoutE_09() returns int32_t in nV convert to mV.
-
     /*
       For validating the range of the Cold-junction temperature end. Use the
       MAX31855's operating range of -40 to +125 degrees Celsius. The NIST table
@@ -436,6 +478,22 @@ float MAX31855K::getITS90()   // aka float getLinearizedTemp()
       the range check fails it is probably noise or some other malfunction.
     */
     return FLT_MAX;
+}
+
+float MAX31855K::getITS90()
+{
+    // Verify we have a good sample
+    if (!isValid()) {
+        return FLT_MAX;   // I think NAN would need exceptions to handle
+                          // Caller must test for FLT_MAX to confirm success.
+    }
+
+    //D const float cold_junction_c = (float)getDeviceEM04() / 10000.;   // cold-junction termerature
+    //D const float vout_mv = (float)getVoutEM09() / 1000000.;  // voltage reading of thermocouple
+    //D                                       // getVoutEM09() returns int32_t in nV convert to mV.
+    //D
+    //D return getITS90(cold_junction_c, vout_mv);
+    return getITS90(getColdJunction(), getVout());
 }
 //
 // End - MAX31855K Type K Thermocouple library

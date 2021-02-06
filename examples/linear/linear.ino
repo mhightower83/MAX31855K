@@ -49,7 +49,7 @@ bool max31855Loop(uint32_t interval_ms) {
         return false;
     }
 
-    sample_available = max31855k.readSample();
+    sample_available = max31855k.read();
     sample_update = true;
     if (sample_available) {
         sample_count++;
@@ -74,9 +74,9 @@ void printPins(Print& out) {
     SPIPins pins = max31855k.getSPIPins();
     out._PRINTLN("SPI Bus configuration:");
     out._PRINTF( "  Pin Assignment:      SCK=%d, MISO=%d, MOSI=%d, CS=%d\r\n",
-                   pins._sck, pins._miso, pins._mosi, pins._cs);
-    out._PRINTF( "  Bus support:         %s\r\n", (pins._hw) ? "Hardware" : "Software");
-    out._PRINTF( "  Chip Select support: %s\r\n", (pins._softCs) ? "Software" : "Hardware");
+                   pins.sck, pins.miso, pins.mosi, pins.cs);
+    out._PRINTF( "  Bus support:         %s\r\n", (pins.hw) ? "Hardware" : "Software");
+    out._PRINTF( "  Chip Select support: %s\r\n", (pins.softCs) ? "Software" : "Hardware");
 }
 
 void setup() {
@@ -87,7 +87,7 @@ void setup() {
 
     LOG_FAIL(
         max31855Init(/* CS */ 5, /* SCK */ 14, /* MISO */ 12, /* SwapLeads */ true),
-        "max31855Init: Failed: 0x%08X", max31855k.getRaw32()
+        "max31855Init: Failed: 0x%08X", max31855k.getRawData().raw32
     );
 
     last = millis();
@@ -101,7 +101,7 @@ void loop() {
 
     // Handle inferred read errors as they occur.
     if (!sample_available && sample_update) {
-        diagPrintError(CONSOLE, max31855k.getSample());
+        diagPrintError(CONSOLE, max31855k.getRawData());
         sample_update = false;
     }
 
@@ -173,9 +173,9 @@ void printReport(Print& out) {
     // const struct MAX31855_BITMAP& parse = max31855k.getData();
     if (max31855k.isValid()) {
         out._PRINTLN("///////////////////////////////////////////////////////////////////////////////////////////////////");
-        out._PRINTLN2("Compensated Probe (Thermocouple) Temperature ", String((float)max31855k.getProbeE_04()  / 10000., 8) + SF(" oC"));
-        out._PRINTLN2("Device Internal (Cold-Junction) Temperature  ", String((float)max31855k.getDeviceE_04() / 10000., 8) + SF(" oC")); // degree symbol "\xC2\xB0" causes print delay
-        float probeTempC = max31855k.getLinearizedTemp();
+        out._PRINTLN2("Compensated Probe (Thermocouple) Temperature ", String((float)max31855k.getProbeEM04()  / 10000., 8) + SF(" oC"));
+        out._PRINTLN2("Device Internal (Cold-Junction) Temperature  ", String((float)max31855k.getDeviceEM04() / 10000., 8) + SF(" oC")); // degree symbol "\xC2\xB0" causes print delay
+        float probeTempC = max31855k.getC();
         if (FLT_MAX == probeTempC) {
             out._PRINTLN2("Linearized Probe Temperature                 ", F("-overflow-"));
         } else {
@@ -184,9 +184,9 @@ void printReport(Print& out) {
         }
         out.println();
 
-        sint32_t vout = 41276 * (max31855k.getProbeE_04() - max31855k.getDeviceE_04()) / 10000;
-        out._PRINTLN2("Vout: ", (vout) + SF(" nV"));
-        out._PRINTLN2("Vout: ", (max31855k.getVoutE_09()) + SF(" nV"));
+        float vout = 41.276E-06 * (max31855k.getProbeEM04() - max31855k.getDeviceEM04()) / 1.0E-04;
+        out._PRINTLN2("Vout: ", (vout*1000, 4) + SF(" mV"));
+        out._PRINTLN2("Vout: ", (max31855k.getVout()*1000, 4) + SF(" mV"));
         out.println();
 
         out._PRINTLN2("sample_count:      ", (sample_count) );
@@ -194,6 +194,6 @@ void printReport(Print& out) {
         out._PRINTLN2("getErrorCount():   ", (max31855k.getErrorCount()) );
         out.println();
     } else {
-      diagPrintError(out, max31855k.getSample());
+      diagPrintError(out, max31855k.getRawData());
     }
 }

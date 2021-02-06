@@ -16,7 +16,6 @@
  *   limitations under the License.
  */
 
-
 inline constexpr bool is_type_k_mv_in_range(const float mV) {
   // Note these equations only handle temperatures down to -200 not -270
   return (54.886 >= mV && -5.891 <= mV);

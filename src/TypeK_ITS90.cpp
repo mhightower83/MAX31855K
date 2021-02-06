@@ -12,14 +12,16 @@
  *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
- */
+//  */
 #include <Arduino.h>    // needed for printing
 #include <cmath>
 #include <cfloat>
 #include <pgmspace.h>  // When present, ITS90 tables will be stored in PROGMEM.
-#include <debugHelper.h>
+// #include <debugHelper.h>
 #include <TypeK_ITS90.h>
 #include <TypeK_ITS90_table.h>
+
+// Fail safe defines, for when debugHelper.h is not present
 #ifndef CONSOLE_PRINTF
 #define CONSOLE_PRINTF(a, ...) Serial.printf_P(PSTR(a), ##__VA_ARGS__)
 #endif
@@ -67,15 +69,15 @@ float type_k_celsius_to_mv(const float t)
 
 float type_k_mv_to_celsius(const float mv)
 {
-    const float *d = d_0_21;    //  0.000 to 20.644
+    const float *d = d_0_21;    //  0.000 to 20.644 mV | 0. to 500. °C
     float n = sizeof(d_0_21) / sizeof(float);
 
     if (0 > mv) {
-        d = d_m6_0;             // -5.891 to 0.000
+        d = d_m6_0;             // -5.891 to 0.000 | -200. to 0. °C
         n = sizeof(d_m6_0) / sizeof(float);
     } else
     if (20.644 < mv) {
-        d = d_21_55;            // 20.644 to 54.886
+        d = d_21_55;            // 20.644 to 54.886 mV | 500. to 1372. °C
         n = sizeof(d_21_55) / sizeof(float);
     }
     return sum_C_i_X_pow_T_i(d, mv, n);
