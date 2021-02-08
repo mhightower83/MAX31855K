@@ -10,7 +10,7 @@ extern uint32_t report_interval_ms;
 extern uint32_t last;
 extern MAX31855K max31855k;
 
-void test_SPI_DELAY_100NS_MIN();
+void testDelay100nsMin();
 
 void processKey(Print& out, int hotKey) {
   switch (hotKey) {
@@ -34,7 +34,7 @@ void processKey(Print& out, int hotKey) {
       break;
 
     case 't':
-      test_SPI_DELAY_100NS_MIN();
+      testDelay100nsMin();
       break;
 
     case '0':

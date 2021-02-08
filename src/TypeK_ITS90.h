@@ -16,18 +16,20 @@
  *   limitations under the License.
  */
 
-inline constexpr bool is_type_k_mv_in_range(const float mV) {
+#define DFLOAT float //double
+
+inline constexpr bool is_type_k_mv_in_range(const DFLOAT mV) {
   // Note these equations only handle temperatures down to -200 not -270
   return (54.886 >= mV && -5.891 <= mV);
 }
 
-inline constexpr bool is_type_k_t_in_range(const float t) {
+inline constexpr bool is_type_k_t_in_range(const DFLOAT t) {
   return (1372.000 >= t && -270.000 <= t);
 }
 
-float type_k_mv_to_celsius(const float mV);
+DFLOAT type_k_mv_to_celsius(const DFLOAT mV);
 
-float type_k_celsius_to_mv(const float t);
+DFLOAT type_k_celsius_to_mv(const DFLOAT t);
 
 bool test_with_edge_data();
 

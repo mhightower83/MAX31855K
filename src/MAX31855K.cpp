@@ -52,7 +52,7 @@ extern "C" uint32_t ets_get_cpu_frequency(void);
 #if defined(ARDUINO_ARCH_ESP8266)
 
 ALWAYS_INLINE static
-void _delay_cycles(uint32_t delay_count) {
+void _delayCycles(uint32_t delay_count) {
     // ~  3 -  2,  87ns,  7 cycles, +6 => +75ns
     // ~  9 -  8, 162ns, 13 cycles,
     // ~ 10 - 14, 237ns, 19 cycles, +75ns
@@ -73,14 +73,14 @@ void _delay_cycles(uint32_t delay_count) {
 }
 
 ALWAYS_INLINE static
-void _delay_12_5ns_nop() {
+void _delay12D5nsNop() {
     __asm__ __volatile__ (
         "nop.n\n\t"
     );
 }
 
 ALWAYS_INLINE static
-void _delay_25ns_nop() {
+void _delay25nsNop() {
     __asm__ __volatile__ (
         "nop.n\n\t"
         "nop.n\n\t"
@@ -88,18 +88,8 @@ void _delay_25ns_nop() {
 }
 
 ALWAYS_INLINE static
-void _delay_37_5ns_nop() {
+void _delay37D5nsNop() {
     __asm__ __volatile__ (
-        "nop.n\n\t"
-        "nop.n\n\t"
-        "nop.n\n\t"
-    );
-}
-
-ALWAYS_INLINE static
-void _delay_50ns_nop() {
-    __asm__ __volatile__ (
-        "nop.n\n\t"
         "nop.n\n\t"
         "nop.n\n\t"
         "nop.n\n\t"
@@ -107,7 +97,17 @@ void _delay_50ns_nop() {
 }
 
 ALWAYS_INLINE static
-void _delay_112_5ns_nop() {
+void _delay50nsNop() {
+    __asm__ __volatile__ (
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+        "nop.n\n\t"
+    );
+}
+
+ALWAYS_INLINE static
+void _delay112D5nsNop() {
     __asm__ __volatile__ (
         "nop.n\n\t"     // 1 or more cycles, maybe 3
         "nop.n\n\t"     // each NOP is 12.5ns at 80MHz
@@ -122,7 +122,7 @@ void _delay_112_5ns_nop() {
 }
 
 ALWAYS_INLINE static
-void _io_commit() {
+void _IoCommit() {
     __asm__ __volatile__ (
       "extw\n\t");    // 1 or more cycles, maybe 3
 }
@@ -141,12 +141,12 @@ ALWAYS_INLINE void delay100nsMin()
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
 #if defined(F_CPU) && (F_CPU == 160000000L)
-    _delay_cycles(14);
+    _delayCycles(14);
 #else
-  // _delay_cycles(8);
-  _delay_cycles(0);   // 87ns,  7 cycles
-  _delay_25ns_nop();  // Net 100 - 112.5ns
-  _delay_12_5ns_nop();  // a little extra for slow rise times cause with resistor pullups
+  // _delayCycles(8);
+  _delayCycles(0);   // 87ns,  7 cycles
+  _delay25nsNop();  // Net 100 - 112.5ns
+  _delay12D5nsNop();  // a little extra for slow rise times cause with resistor pullups
 #endif
 #else
     delayMicroseconds(1);
@@ -157,12 +157,12 @@ ALWAYS_INLINE void delay200nsMin(void)
 {
 #if defined(ARDUINO_ARCH_ESP8266)
 #if defined(F_CPU) && (F_CPU == 160000000L)
-  _delay_cycles(32);
+  _delayCycles(32);
 #else
-  _delay_cycles(14);
-  // _delay_cycles(8);   // 162.5ns, 13 cycles
-  // _delay_50ns_nop();  // Net 200 - 212.5ns
-  // _delay_12_5ns_nop();
+  _delayCycles(14);
+  // _delayCycles(8);   // 162.5ns, 13 cycles
+  // _delay50nsNop();  // Net 200 - 212.5ns
+  // _delay12D5nsNop();
 #endif
 
 #else
@@ -186,7 +186,7 @@ ALWAYS_INLINE uint32_t protoSPIDelay100(uint32_t cycles) {
       ::);
 
 // delay test dejour
-    // _delay_cycles(cycles);
+    // _delayCycles(cycles);
     delay100nsMin();
     // delay200nsMin();
 
@@ -212,7 +212,7 @@ ALWAYS_INLINE uint32_t protoSPIDelay200(uint32_t cycles) {
 
 
 // delay test dejour
-    // _delay_cycles(cycles);
+    // _delayCycles(cycles);
     // delay100nsMin();
     delay200nsMin();
 
@@ -227,7 +227,7 @@ ALWAYS_INLINE uint32_t protoSPIDelay200(uint32_t cycles) {
     return delta;
 }
 NOINLINE IRAM_ATTR
-void test_delay100nsMin() {
+void testDelay100nsMin() {
   // constexpr uint32_t cycles =  2;  //  87ns,  7 cycles +6 => +75ns
   constexpr uint32_t cycles =  8;  // 162ns, 13 cycles
   // constexpr uint32_t cycles = 14;  // 237ns, 19 cycles, +75ns
@@ -235,16 +235,17 @@ void test_delay100nsMin() {
   // constexpr uint32_t cycles = 26;  // 387ns, 31 cycles, +75ns
   // constexpr uint32_t cycles = 32;  // 462ns, 37 cycles, +75ns
 
+  uint32_t freq = ets_get_cpu_frequency();
   uint32_t delay;
   delay = protoSPIDelay100(cycles);
-  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_100, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
+  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_100, %4.2fns, %u cycles\r\n", delay * 1000. / freq, delay);
   delay = protoSPIDelay100(cycles);
-  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_100, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
+  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_100, %4.2fns, %u cycles\r\n", delay * 1000. / freq, delay);
   CONSOLE.println();
   delay = protoSPIDelay200(cycles);
-  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
+  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / freq, delay);
   delay = protoSPIDelay200(cycles);
-  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / ets_get_cpu_frequency(), delay);
+  CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / freq, delay);
 }
 #endif // ARDUINO_ARCH_ESP8266
 //
@@ -298,8 +299,8 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
 
 // Keep keep timing parts in fast IRAM
 NOINLINE IRAM_ATTR static
-//D uint32_t _spi_read32(bool hw, bool softCs, uint8_t cs, uint8_t sck, uint8_t miso)
-uint32_t _spi_read32(const SPIPins& pins)
+//D uint32_t _spiRead32(bool hw, bool softCs, uint8_t cs, uint8_t sck, uint8_t miso)
+uint32_t _spiRead32(const SPIPins& pins)
 {
     union {
       uint32_t u32;
@@ -333,7 +334,7 @@ uint32_t _spi_read32(const SPIPins& pins)
     return value.u32;
 }
 
-uint32_t MAX31855K::spi_read32(void)
+uint32_t MAX31855K::spiRead32(void)
 {
     if (_pins.softCs) {
         if (_pins.hw) {
@@ -357,8 +358,8 @@ uint32_t MAX31855K::spi_read32(void)
         }
     }
 
-    //D uint32_t value = _spi_read32(_pins.hw, _pins.softCs, _pins.cs, _pins.sck, _pins.miso);  // Keep the key parts in fast IRAM
-    uint32_t value = _spi_read32(_pins);
+    //D uint32_t value = _spiRead32(_pins.hw, _pins.softCs, _pins.cs, _pins.sck, _pins.miso);  // Keep the key parts in fast IRAM
+    uint32_t value = _spiRead32(_pins);
 
     digitalWrite(_pins.cs, HIGH);  // deselect slave
     /*
@@ -373,69 +374,6 @@ uint32_t MAX31855K::spi_read32(void)
 ///////////////////////////////////////////////////////////////////////////////
 // MAX31855K Type K Thermocouple library
 //
-bool MAX31855K::begin(const SPIPins cfg)
-{
-    return beginSPI(cfg);
-}
-
-sint32_t MAX31855K::_getProbeEM04() const
-{
-    // The probe temperature (thermocouple) value provided by the MAX31855 is
-    // compensated for cold junction temperature. It also assumes a linear
-    // response from the non-linear (mostly linear) type K thermocouple.
-    const struct MAX31855_BITMAP& parse = getData();
-    sint32_t probe   = (parse.probe - _zero_cal) * 2500;
-    if (_swap_leads) {
-        sint32_t internal = parse.internal * 625;
-        probe = (internal - probe) + internal;  // Reverse leads - Invert the delta temperature
-        return probe;
-    }
-    return probe;
-}
-sint32_t MAX31855K::getProbeEM04() const
-{
-    if (isValid()) {
-      return _getProbeEM04();
-    }
-    return INT32_MAX;
-}
-
-sint32_t MAX31855K::_getDeviceEM04() const
-{
-      return getData().internal * 625;
-}
-sint32_t MAX31855K::getDeviceEM04() const
-{
-    if (isValid()) {
-        return _getDeviceEM04();
-    }
-    return INT32_MAX;
-}
-
-//D sint32_t MAX31855K::getVoutEM09() const // nV
-//D {
-//D     if (isValid()) {
-//D         sint32_t probe    = _getProbeEM04();
-//D         sint32_t internal = _getDeviceEM04();
-//D         // temperatures were in milli degrees - convert to degrees
-//D         sint32_t vout = 41276 * (probe - internal) / 10000; // nV
-//D         return vout;
-//D     }
-//D     return INT32_MAX;
-//D }
-
-float MAX31855K::getVout() const
-{
-    if (isValid()) {
-        sint32_t probe    = _getProbeEM04();
-        sint32_t internal = _getDeviceEM04();
-        // temperatures were in milli degrees - convert to degrees
-        sint32_t vout = 41276 * (probe - internal) / 10000; // nV
-        return (float)vout * 1.0E-09;
-    }
-    return FLT_MAX;
-}
-
 /*
   Useful and instructive info from:
     https://instrumentationtools.com/thermocouple-calculations/
@@ -454,46 +392,81 @@ float MAX31855K::getVout() const
   coefficient based "inverse" conversion to get the linearized temperature in
   degrees Celsius.
 */
-inline constexpr bool is_max31855k_operation_range(const float t) {
-    return (125. >= t && -40. <= t);
+
+sint32_t MAX31855K::_getProbeEM04() const
+{
+    // The probe temperature (thermocouple) value provided by the MAX31855 is
+    // compensated for cold junction temperature. It also assumes a linear
+    // response from the non-linear (mostly linear) type K thermocouple.
+    sint32_t probe   = (parceData().probe - _zero_cal) * 2500;  // 0.25 * 10000
+    if (_swap_leads) {
+        // Fix miss wired thermocouple, polarity reversed.
+        sint32_t internal = _getDeviceEM04();
+        probe = (internal - probe) + internal;
+    }
+    return probe;
 }
 
-float MAX31855K::getITS90(const float cold_junction_c, const float vout_mv)
+/*
+  This is the isolated hot-junction thermocouple voltage output.
+  ie. before the cold-junction block's voltage is added in.
+*/
+DFLOAT MAX31855K::getHotJunctionVout() const
+{
+    DFLOAT vout = FLT_MAX;
+
+    if (isValid()) {
+        sint32_t probe    = _getProbeEM04();
+        sint32_t internal = _getDeviceEM04();
+        vout = 41.276E-06 * DFLOAT(probe - internal) * 1.0E-04;
+    }
+    return vout;
+}
+
+
+DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) const
 {
     /*
       For validating the range of the Cold-junction temperature end. Use the
       MAX31855's operating range of -40 to +125 degrees Celsius. The NIST table
       limits would allowed values far exceeding the MAX31855K operating range.
     */
-    if (is_max31855k_operation_range(cold_junction_c)) {  // This is less than NIST table range
-        float mV = vout_mv + type_k_celsius_to_mv(cold_junction_c);
+    if (isMAX31855InOperationRange(coldJunctionC)) {  // This is less than NIST table range
+        DFLOAT mV = voutMv + type_k_celsius_to_mv(coldJunctionC);
         if (is_type_k_mv_in_range(mV)) {
             return type_k_mv_to_celsius(mV);
         }
     }
 
     /*
-      The request is failed when the input data values do not fall within the
+      The request has failed when the input data values do not fall within the
       operating ranges of the hardware or ITS90 table ranges. For cases when
       the range check fails it is probably noise or some other malfunction.
     */
+    // I think NAN would need exceptions to handle?
+    // Caller must test for FLT_MAX to confirm success.
     return FLT_MAX;
 }
 
-float MAX31855K::getITS90()
-{
-    // Verify we have a good sample
-    if (!isValid()) {
-        return FLT_MAX;   // I think NAN would need exceptions to handle
-                          // Caller must test for FLT_MAX to confirm success.
-    }
 
-    //D const float cold_junction_c = (float)getDeviceEM04() / 10000.;   // cold-junction termerature
-    //D const float vout_mv = (float)getVoutEM09() / 1000000.;  // voltage reading of thermocouple
-    //D                                       // getVoutEM09() returns int32_t in nV convert to mV.
-    //D
-    //D return getITS90(cold_junction_c, vout_mv);
-    return getITS90(getColdJunction(), getVout());
+/*
+  Supports faster integer math when implimenting temperature control thresholds
+  for tuning device on/off. Generate a probeEM04 value for matching a real
+  temperature to the uncorrected nonlinear reading from the MAX31855K.
+
+  Wide swings in ambient, Cold Junction, temperature will increase error
+  with this method. Infuence should be lessened if Hot-junction temperature
+  are larger than the Cold Junction temperature. The Cold Junction temperature
+  becomes a smaller component in the equation.
+
+  A workaround would be to periodicly refresh the threshold calculations.
+*/
+sint32_t MAX31855K::convertC2ProbeEM04(const DFLOAT hj, const DFLOAT cj) const
+{
+    constexpr DFLOAT kvc = 41.276E-06; //type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
+    DFLOAT hotJunctionV = (type_k_celsius_to_mv(hj) - type_k_celsius_to_mv(cj)) * 1.0E-03;
+    DFLOAT coldJunctionV = cj * kvc;
+    return ((hotJunctionV + coldJunctionV) / kvc * 1.0E04);  // * 1.0E-04
 }
 //
 // End - MAX31855K Type K Thermocouple library

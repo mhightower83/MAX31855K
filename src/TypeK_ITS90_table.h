@@ -55,7 +55,7 @@ From NIST: https://srdata.nist.gov/its90/download/allcoeff.tab
 /*
   range: -270.000 to 0.000 °C, 10 coefficients
 */
-constexpr float c_m270[] PROGMEM = {
+constexpr DFLOAT c_m270[] PROGMEM = {
        0.000000000000E+00,
        0.394501280250E-01,
        0.236223735980E-04,
@@ -72,7 +72,7 @@ constexpr float c_m270[] PROGMEM = {
 /*
   range: 0.000 to 1372.000 °C, 9 coefficients
 */
-constexpr float c_0[] PROGMEM = {
+constexpr DFLOAT c_0[] PROGMEM = {
       -0.176004136860E-01,
        0.389212049750E-01,
        0.185587700320E-04,
@@ -88,9 +88,9 @@ constexpr float c_0[] PROGMEM = {
 /*
   exponential for range: 0.000 to 1372.000 °C:
 */
-constexpr float a0 PROGMEM =  0.118597600000E+00;
-constexpr float a1 PROGMEM = -0.118343200000E-03;
-constexpr float a2 PROGMEM =  0.126968600000E+03;
+constexpr DFLOAT a0 PROGMEM =  0.118597600000E+00;
+constexpr DFLOAT a1 PROGMEM = -0.118343200000E-03;
+constexpr DFLOAT a2 PROGMEM =  0.126968600000E+03;
 
 ///////////////////////////////////////////////////////////////////////////////
 //    inverse convert, thermocouple mV reading to a temperature in °C
@@ -136,7 +136,7 @@ From NIST: https://srdata.nist.gov/its90/download/allcoeff.tab
   Voltage Range:     -5.891 to 0.000
   Error Range:        -0.02 to 0.04
 */
-constexpr float d_m6_0[] PROGMEM = {
+constexpr DFLOAT d_m6_0[] PROGMEM = {
        0.0000000E+00,
        2.5173462E+01,
       -1.1662878E+00,
@@ -153,7 +153,7 @@ constexpr float d_m6_0[] PROGMEM = {
   Voltage Range:      0.000 to 20.644
   Error Range:        -0.05 to 0.04
 */
-constexpr float d_0_21[] PROGMEM = {
+constexpr DFLOAT d_0_21[] PROGMEM = {
        0.000000E+00,
        2.508355E+01,
        7.860106E-02,
@@ -170,7 +170,7 @@ constexpr float d_0_21[] PROGMEM = {
   Voltage Range:     20.644 to 54.886
   Error Range:        -0.05 to 0.06
 */
-constexpr float d_21_55[] PROGMEM = {
+constexpr DFLOAT d_21_55[] PROGMEM = {
       -1.318058E+02,
        4.830222E+01,
       -1.646031E+00,

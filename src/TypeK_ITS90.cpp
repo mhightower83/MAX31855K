@@ -12,7 +12,8 @@
  *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
-//  */
+ */
+
 #include <Arduino.h>    // needed for printing
 #include <cmath>
 #include <cfloat>
@@ -30,7 +31,7 @@
   The equation for the above 0 °C case is of the form
   E = sum(i=0 to n) c_i t^i + a0 exp(a1 (t - a2)^2).
 */
-static float exponential_part(float t)
+static DFLOAT exponential_part(DFLOAT t)
 {
   return a0 * exp(a1 * pow((t - a2), 2));
 }
@@ -42,24 +43,24 @@ static float exponential_part(float t)
     t_90 = d_0 + d_1*E + d_2*E^2 + ... + d_n*E^n,
     etc.
 */
-static float sum_C_i_X_pow_T_i(const float *c, const float t, const size_t n)
+static DFLOAT sum_C_i_X_pow_T_i(const DFLOAT *c, const DFLOAT t, const size_t n)
 {
-    float sum = c[0];
+    DFLOAT sum = c[0];
     for (size_t i = 1; i < n; ++i) {
         sum += c[i] * pow(t, i);
     }
     return sum;
 }
 
-float type_k_celsius_to_mv(const float t)
+DFLOAT type_k_celsius_to_mv(const DFLOAT t)
 {
-    const float *c = c_m270;    // -270.000 to 0.000 °C
-    float n = sizeof(c_m270) / sizeof(float);
-    float mv = 0;
+    const DFLOAT *c = c_m270;    // -270.000 to 0.000 °C
+    DFLOAT n = sizeof(c_m270) / sizeof(DFLOAT);
+    DFLOAT mv = 0;
 
     if (0 <= t) {
         c = c_0;                // 0.000 to 1372.000 °C
-        n = sizeof(c_0) / sizeof(float);
+        n = sizeof(c_0) / sizeof(DFLOAT);
         mv = exponential_part(t);
     }
 
@@ -67,26 +68,26 @@ float type_k_celsius_to_mv(const float t)
     return mv;
 }
 
-float type_k_mv_to_celsius(const float mv)
+DFLOAT type_k_mv_to_celsius(const DFLOAT mv)
 {
-    const float *d = d_0_21;    //  0.000 to 20.644 mV | 0. to 500. °C
-    float n = sizeof(d_0_21) / sizeof(float);
+    const DFLOAT *d = d_0_21;    //  0.000 to 20.644 mV | 0. to 500. °C
+    DFLOAT n = sizeof(d_0_21) / sizeof(DFLOAT);
 
     if (0 > mv) {
         d = d_m6_0;             // -5.891 to 0.000 | -200. to 0. °C
-        n = sizeof(d_m6_0) / sizeof(float);
+        n = sizeof(d_m6_0) / sizeof(DFLOAT);
     } else
     if (20.644 < mv) {
         d = d_21_55;            // 20.644 to 54.886 mV | 500. to 1372. °C
-        n = sizeof(d_21_55) / sizeof(float);
+        n = sizeof(d_21_55) / sizeof(DFLOAT);
     }
     return sum_C_i_X_pow_T_i(d, mv, n);
 }
 
 
 ///////////////////////////////////
-// Test edges
-constexpr float c_mv_data[] PROGMEM = {
+// Test data
+constexpr DFLOAT c_mv_data[] PROGMEM = {
 //  degrees C     mV
                           // only C to mV is handled this low
     -270.001,  -6.458,
@@ -100,6 +101,14 @@ constexpr float c_mv_data[] PROGMEM = {
      -10.000,  -0.392,
        0.000,   0.000,
       10.000,   0.397,
+      20.000,   0.798,
+      30.000,   1.203,
+      40.000,   1.612,
+      50.000,   2.023,
+      60.000,   2.436,
+      70.000,   2.851,
+      80.000,   3.267,
+      90.000,   3.682,
      100.000,   4.096,
      200.000,   8.138,
      300.000,  12.209,
@@ -121,11 +130,11 @@ constexpr float c_mv_data[] PROGMEM = {
     1372.001,  54.886
 };
 bool test_with_edge_data() {
-    constexpr size_t n = sizeof(c_mv_data)/sizeof(float);
+    constexpr size_t n = sizeof(c_mv_data)/sizeof(DFLOAT);
 
     for (size_t i = 0; i < n; i += 2) {
-      float mV = type_k_celsius_to_mv(c_mv_data[i]);
-      float t = type_k_mv_to_celsius(c_mv_data[i + 1]);
+      DFLOAT mV = type_k_celsius_to_mv(c_mv_data[i]);
+      DFLOAT t = type_k_mv_to_celsius(c_mv_data[i + 1]);
       CONSOLE_PRINTF("  %8.3f Celsius to %8.3f mV, expected %8.3f mV, convert expected mV to %8.3f Celsius\r\n",
                       c_mv_data[i], mV, c_mv_data[i + 1], t);
     }
