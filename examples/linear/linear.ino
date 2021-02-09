@@ -174,28 +174,28 @@ void printReport(Print& out) {
     // const struct MAX31855_BITMAP& parse = max31855k.parceData();
     if (max31855k.isValid()) {
         out._PRINTLN("Report on current MAX31855K sample.");
-        out._PRINTF("  Compensated Probe (Thermocouple) Temperature %8.4f ""\xC2\xB0""C\r\n", (DFLOAT)max31855k.getProbeEM04()  / 10000.);
-        out._PRINTF("  Device Internal (Cold-Junction) Temperature  %8.4f ""\xC2\xB0""C\r\n", (DFLOAT)max31855k.getDeviceEM04() / 10000.);
+        out._PRINTF("  Compensated Probe (Thermocouple) Temperature %8.4f ""\xC2\xB0""C\r\n", (DFLOAT)max31855k.getProbeX10K()  / 10000.);
+        out._PRINTF("  Device Internal (Cold-Junction) Temperature  %8.4f ""\xC2\xB0""C\r\n", (DFLOAT)max31855k.getDeviceX10K() / 10000.);
         DFLOAT probeTempC = max31855k.getCelsius();
         if (FLT_MAX == probeTempC) {
             out._PRINTF("  Linearized Probe Temperature                 NaN\r\n");
         } else {
             out._PRINTF("  Linearized Probe Temperature                 %8.4f ""\xC2\xB0""C\r\n", probeTempC);
-            out._PRINTF("  Linearized Probe Temperature                 %8.4f ""\xC2\xB0""F\r\n", probeTempC*1.8 + 32);
+            out._PRINTF("  Linearized Probe Temperature                 %8.4f ""\xC2\xB0""F\r\n", probeTempC * 1.8 + 32);
         }
         out.println();
         DFLOAT mV = max31855k.getHotJunctionVout() * 1.0E03;
         out._PRINTF("  Hot-Junction thermocouple Vout:     %9.4f mV\r\n", mV);
-        DFLOAT cold_junction_mV = type_k_celsius_to_mv(max31855k.getColdJunction()); // same as ?? max31855k.getDeviceEM04() / 10000.);
+        DFLOAT cold_junction_mV = type_k_celsius_to_mv(max31855k.getColdJunction()); // same as ?? max31855k.getDeviceX10K() / 10000.);
         out._PRINTF("  Cold-Junction thermocouple Vout:    %9.4f mV\r\n", cold_junction_mV);
         mV += cold_junction_mV;
         out._PRINTF("  Total Vout:                         %9.4f mV\r\n", mV);
         DFLOAT c = type_k_mv_to_celsius(mV);
         out._PRINTF("  type_k_mv_to_celsius(%9.4f)     %9.4f ""\xC2\xB0""C\r\n", mV, c);
 {
-        sint32_t nonlinearC = max31855k.convertC2ProbeEM04(c, max31855k.getColdJunction());
+        sint32_t nonlinearC = max31855k.convertC2ProbeX10K(c, max31855k.getColdJunction());
         DFLOAT nonlinearCf = nonlinearC / 10000.;
-        out._PRINTF("    convertC2ProbeEM04(  %9.4f)     %9.4f ""\xC2\xB0""C, type_k_mv_to_celsius(%9.4f)\r\n",
+        out._PRINTF("    convertC2ProbeX10K(  %9.4f)     %9.4f ""\xC2\xB0""C, type_k_mv_to_celsius(%9.4f)\r\n",
                     c, nonlinearCf, mV);
         DFLOAT hot_junction_mV = 41.276E-06 * (nonlinearCf - max31855k.getColdJunction()) * 1.0E03;
         DFLOAT cold_junction_mV = type_k_celsius_to_mv(max31855k.getColdJunction());
@@ -209,7 +209,7 @@ void printReport(Print& out) {
 }
     // // const DFLOAT vc = type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
     //     DFLOAT ct = type_k_celsius_to_mv(c) * 1.0E-03 / 41.276E-06 * 1.0E04;  // * 1.0E-04
-    //     out._PRINTF("  convertC2ProbeEM04(  %9.4f)     %9.4f ""\xC2\xB0""C, type_k_mv_to_celsius(%9.4f)\r\n", c, ct / 10000., mV);
+    //     out._PRINTF("  convertC2ProbeX10K(  %9.4f)     %9.4f ""\xC2\xB0""C, type_k_mv_to_celsius(%9.4f)\r\n", c, ct / 10000., mV);
 
 
         mV = type_k_celsius_to_mv(c);
@@ -218,7 +218,7 @@ void printReport(Print& out) {
         out._PRINTF("  type_k_mv_to_celsius(%9.4f)     %9.4f ""\xC2\xB0""C\r\n", mV, c);
         mV = type_k_celsius_to_mv(c);
         out._PRINTF("  type_k_celsius_to_mv(%9.4f)     %9.4f mV\r\n", c, mV);
-        DFLOAT vout = 41.276E-06 * (max31855k.getProbeEM04() - max31855k.getDeviceEM04()) * 1.0E-04;
+        DFLOAT vout = 41.276E-06 * (max31855k.getProbeX10K() - max31855k.getDeviceX10K()) * 1.0E-04;
         out._PRINTF("  Hot-Junction thermocouple Vout_cmp: %9.4f mV\r\n", (vout * 1.0E03));
         out.println();
 

@@ -13,11 +13,25 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
+/*
+  Clarification on word usage: "corrected" vs "compensated".
 
+  I use (linear) "corrected" when refering to the linearized correction applied
+  to the thermocouple's non-linear response.
+
+  "compensated" is used when refering to the adding in of the Cold-Junction
+  temperature measurment to the  Hot-Junction measument to make it realtive to a
+  Cold-Junction temperature of 0 degrees Celsius.
+*/
 #ifndef MAX31855K_H
 #define MAX31855K_H
 #include <cmath>
 #include <cfloat>
+
+#ifndef ALWAYS_INLINE
+#define ALWAYS_INLINE inline __attribute__ ((always_inline))
+#endif
+
 #define DFLOAT float //double
 
 //////////////////////////////////////////////////////////////////////////////
@@ -62,6 +76,19 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 // MAX31855K Type K Thermocouple library
 //
+ALWAYS_INLINE constexpr bool isMAX31855InOperationRange(const DFLOAT t) {
+    return (125. >= t && -40. <= t);
+}
+
+// conversions
+ALWAYS_INLINE DFLOAT floatX10K(sint32_t t) { return DFLOAT(t * 1E-04); }
+ALWAYS_INLINE sint32_t sint32X10K(DFLOAT t) { return sint32_t(round(t * 1E04)); }
+ALWAYS_INLINE sint32_t sint32X10K(sint32_t t) { return sint32_t(t * 10000); }
+ALWAYS_INLINE DFLOAT milliVolt2Volt(DFLOAT mV) { return mV * 1.0E-03; }
+ALWAYS_INLINE DFLOAT volt2MilliVolt(DFLOAT mV) { return mV * 1.0E03; }
+ALWAYS_INLINE DFLOAT celsius2Fahrenheit(DFLOAT c) { return c * 1.8 + 32; }
+ALWAYS_INLINE DFLOAT fahrenheit2Celsius(DFLOAT f) { return (f - 32) / 1.8; }
+
 struct MAX31855_BITMAP {
     bool     oc:1;            // =1, thermocouple connection is open
     bool     scg:1;           // =1, short-circuited to GND
@@ -70,15 +97,14 @@ struct MAX31855_BITMAP {
     sint32_t internal:12;     // Device internal temperature, cold-junction side
     bool     fault:1;         // set if any of { oc | scg | scv } are set
     uint32_t res2:1;          // always 0
-    sint32_t probe:14;        // Cold-junction compensated probe temperature, Thermocouple.
+    sint32_t probe:14;        // Cold-junction "compensated" probe temperature, Thermocouple.
 };
-
-inline constexpr bool isMAX31855InOperationRange(const DFLOAT t) {
-    return (125. >= t && -40. <= t);
-}
 
 class MAX31855K {
 public:
+    // Over the range: 0 to 1000 degrees for Type K thermocouple. "kSensitivityVoC"
+    // could be calculated with type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
+    const DFLOAT kSensitivityVoC = 41.276E-06; // Use constant specified in the MAX313855K datasheet.
     union Thermocouple {
         struct MAX31855_BITMAP parse;
         uint32_t raw32;
@@ -90,8 +116,8 @@ private:
     uint32_t _errors;
     union Thermocouple _thermocouple;
     union Thermocouple _lastError;
-    sint32_t _getProbeEM04() const;  // * 1.0E-04
-    sint32_t _getDeviceEM04() const { return parceData().internal * 625; }// 0.0625 * 10000;
+    sint32_t _getProbeX10K() const;  // convert with float(_getProbeX10K()) * 1.0E-04;
+    sint32_t _getDeviceX10K() const { return parceData().internal * 625; }// 0.0625 * 10000;
 
 public:
     const SPIPins& getSPIPins() const { return _pins; }
@@ -130,12 +156,12 @@ public:
     bool begin(const SPIPins cfg) { return beginSPI(cfg); }
     void end() {}
     void setSwapLeads(bool b) { _swap_leads = b; }
-    sint32_t getSwapLeads() const { return _swap_leads; }
+    bool getSwapLeads() const { return _swap_leads; }
 
     void setZeroCal(sint32_t cal) { _zero_cal = cal; }
-    void setZeroCal() { setZeroCal(_thermocouple.parse.probe); }
+    void setZeroCal() { setZeroCal(parceData().probe); }
     sint32_t getZeroCal() const { return _zero_cal; }
-    //D sint32_t getZeroCalEM04() const { return getZeroCal() * 2500; }
+    //D sint32_t getZeroCalX10K() const { return getZeroCal() * 2500; }
 
     uint32_t spiRead32();
     bool isValid(uint32_t raw_u32) const {
@@ -163,42 +189,52 @@ public:
     const union Thermocouple& getLastError() const { return _lastError; }
 
     // Scaled Integer result for quick processing
-    // ...EM04 values were multiplied by 10000 to preserve the decimal parts.
-    sint32_t getProbeEM04() const { // * 1.0E-04
+    // ...X10K values were multiplied by 10000 to preserve the decimal parts.
+    sint32_t getProbeX10K() const { // * 1.0E-04
         if (isValid()) {
-          return _getProbeEM04();
+          return _getProbeX10K();
         }
         return INT32_MAX;
     }
-    sint32_t getDeviceEM04() const { // * 1.0E-04
+    sint32_t getDeviceX10K() const { // * 1.0E-04
         if (isValid()) {
-            return _getDeviceEM04();
+            return _getDeviceX10K();
         }
         return INT32_MAX;
     }
-    sint32_t convertC2ProbeEM04(const DFLOAT hj, const DFLOAT cj) const;
+    sint32_t convertC2ProbeX10K(const DFLOAT hj, const DFLOAT cj) const;
 
-    // Float values not corrected for non-linear properties of thermocouple
-    DFLOAT getColdJunction() const { return (DFLOAT)getDeviceEM04() * 1.0E-04; }
-    DFLOAT getHotJunction() const { return (DFLOAT)getProbeEM04() * 1.0E-04; }
-    DFLOAT getHotJunctionVout() const;
+    // These float values are not "corrected" for the non-linear properties of
+    // thermocouple
+    DFLOAT getColdJunction() const { return floatX10K(getDeviceX10K()); }
+    DFLOAT getHotJunction() const { return floatX10K(getProbeX10K()); }
+    // This is the isolated hot-junction thermocouple voltage output.
+    // ie. before the cold-junction block's voltage is added in.
+    DFLOAT getHotJunctionVout() const {
+        DFLOAT vout = FLT_MAX;
+        if (isValid()) {
+            vout = kSensitivityVoC * floatX10K(_getProbeX10K() - _getDeviceX10K());
+        }
+        return vout;
+    }
+    DFLOAT getColdJunctionVout() const { return getColdJunction() * kSensitivityVoC; };
 
-    // Float values corrected for non-linear properties of Type K thermocouple
+    // Float values "corrected" for non-linear properties of Type K thermocouple
     // using polynomial coefficients defined by ITS90
     // returns FLT_MAX, for conditions that do not allow processing
     DFLOAT getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) const;
     DFLOAT getITS90() const {
         if (isValid()) {
-            return getITS90(getColdJunction(), getHotJunctionVout() * 1.0E03); // (C, mV)
+            return getITS90(getColdJunction(), volt2MilliVolt(getHotJunctionVout())); // (C, mV)
         }
         return FLT_MAX;
     }
 
-    // wrappers
+    // wrappers for linear corrected values
     DFLOAT getC() const { return getITS90(); };
-    DFLOAT getF() const { return getITS90() * 1.8 + 32; };
+    DFLOAT getF() const { return celsius2Fahrenheit(getITS90()); };
     DFLOAT getCelsius() const { return getITS90(); };
-    DFLOAT getFahrenheit() const { return getITS90() * 1.8 + 32; };
+    DFLOAT getFahrenheit() const { return celsius2Fahrenheit(getITS90()); };
 
     uint32_t getErrorCount() const { return _errors; }
     void clearErrorCount() { _errors = 0; }

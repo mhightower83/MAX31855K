@@ -273,7 +273,7 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
     }
     if (_pins.hw) {
         DEBUG_PRINTF("HW SPI Configured ");
-        if (15 == _pins.cs) {
+        if (SS == _pins.cs) {   // GPIO15
             DEBUG_PRINTF("w/HW CS");
             SPI.setHwCs(true);
         } else if (0 != _pins.cs) {
@@ -285,9 +285,9 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
         SPI.begin();
     } else {
         DEBUG_PRINTF("Soft SPI Configured");
-        digitalWrite(_pins.cs, HIGH);    // deselect
+        digitalWrite(_pins.cs, HIGH);       // deselect
         pinMode(_pins.cs, OUTPUT);
-        digitalWrite(_pins.sck, LOW);    // clock starts from low
+        digitalWrite(_pins.sck, LOW);       // clock starts from low
         pinMode(_pins.sck, OUTPUT);
         pinMode(_pins.miso, INPUT);
     }
@@ -299,7 +299,6 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
 
 // Keep keep timing parts in fast IRAM
 NOINLINE IRAM_ATTR static
-//D uint32_t _spiRead32(bool hw, bool softCs, uint8_t cs, uint8_t sck, uint8_t miso)
 uint32_t _spiRead32(const SPIPins& pins)
 {
     union {
@@ -312,20 +311,17 @@ uint32_t _spiRead32(const SPIPins& pins)
         SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
         if (pins.softCs) {
             // Arduino doc says CS is done after SPI.beginTransaction!
-            digitalWrite(pins.cs, LOW);  // select
-            delay100nsMin();        // wait time for first bit valid - not sure this is needed here
+            digitalWrite(pins.cs, LOW);     // select
+            delay100nsMin(); // wait time for first bit valid - not sure this is needed here
         }
-        for (ssize_t i = 3; i >= 0; i--) {
+        for (ssize_t i = 3; i >= 0; i--) {  // MSBFIRST little-endian
             value.u8[i] = SPI.transfer(0);
         }
         SPI.endTransaction();
     } else {
         for (size_t i = 0; i < 32; i++) {
-            value.u32 <<= 1;
-            if (digitalRead(pins.miso)) {
-                value.u32 |= 1;
-            }
-            digitalWrite(pins.sck, HIGH); // data read before rising clock edge
+            value.u32 = value.u32 << 1 | digitalRead(pins.miso);
+            digitalWrite(pins.sck, HIGH);   // data read before rising clock edge
             delay100nsMin();
             digitalWrite(pins.sck, LOW);
             delay100nsMin();
@@ -341,7 +337,7 @@ uint32_t MAX31855K::spiRead32(void)
             if (LOW == digitalRead(_pins.cs)) {
                 // make idle to restart process
                 digitalWrite(_pins.cs, HIGH);
-                delay200nsMin();    // minimum CS# inactive time
+                delay200nsMin();              // minimum CS# inactive time
             }
         } else {
             // Check for idle state
@@ -349,16 +345,15 @@ uint32_t MAX31855K::spiRead32(void)
             ||  LOW != digitalRead(_pins.sck)) {
                 // make idle to restart process
                 digitalWrite(_pins.cs, HIGH);
-                digitalWrite(_pins.sck, LOW);  // Start soft SPI with SCK low before CS#
-                delay200nsMin();    // minimum CS# inactive time
+                digitalWrite(_pins.sck, LOW); // Start soft SPI with SCK low before CS#
+                delay200nsMin();              // minimum CS# inactive time
             }
-            digitalWrite(_pins.cs, LOW);     // select
-            delay100nsMin();            // wait time for first bit valid
+            digitalWrite(_pins.cs, LOW);      // select
+            delay100nsMin();                  // wait time for first bit valid
             // Soft SPI is now ready to read the 1st bit.
         }
     }
 
-    //D uint32_t value = _spiRead32(_pins.hw, _pins.softCs, _pins.cs, _pins.sck, _pins.miso);  // Keep the key parts in fast IRAM
     uint32_t value = _spiRead32(_pins);
 
     digitalWrite(_pins.cs, HIGH);  // deselect slave
@@ -375,6 +370,14 @@ uint32_t MAX31855K::spiRead32(void)
 // MAX31855K Type K Thermocouple library
 //
 /*
+  Overview: We get a die temperature reading from the MAX31855. This is used for
+  the Cold-junction temperature in Celsius. That value is changed into mV using
+  the ITS90 coefficient based calculation to convert degrees Celsius to an
+  equivalent thermocouple mV reading. That value is added to the probe
+  thermocouple mV reading. The resulting sum is passed through an ITS90
+  coefficient based "inverse" conversion to get the linearized temperature in
+  degrees Celsius.
+
   Useful and instructive info from:
     https://instrumentationtools.com/thermocouple-calculations/
     https://www.ti.com/lit/an/sbaa274/sbaa274.pdf
@@ -383,44 +386,22 @@ uint32_t MAX31855K::spiRead32(void)
   "thermocouple-calculations" gives a good perspective of how we get the
   hot-thermocouple temperature w/o using an ice bath for the reference end.
   SBAA274 adds a lot of design depth to the thermocouple discussion.
-
-  We get a die temerature reading from the MAX31855. This is used for the
-  Cold-junction temperature in Celsius. That value is changed into mV using the
-  ITS90 coefficient based calculation to convert degrees Celsius to an
-  equivalent thermocouple mV reading. That value is added to the probe
-  thermocouple mV reading. The resulting sum is passed through an ITS90
-  coefficient based "inverse" conversion to get the linearized temperature in
-  degrees Celsius.
 */
 
-sint32_t MAX31855K::_getProbeEM04() const
+/*
+  The probe temperature (thermocouple) value provided by the MAX31855 is
+  compensated for cold junction temperature. It also assumes a linear response
+  from the non-linear (mostly linear) type K thermocouple.
+*/
+sint32_t MAX31855K::_getProbeX10K() const
 {
-    // The probe temperature (thermocouple) value provided by the MAX31855 is
-    // compensated for cold junction temperature. It also assumes a linear
-    // response from the non-linear (mostly linear) type K thermocouple.
     sint32_t probe   = (parceData().probe - _zero_cal) * 2500;  // 0.25 * 10000
     if (_swap_leads) {
         // Fix miss wired thermocouple, polarity reversed.
-        sint32_t internal = _getDeviceEM04();
+        sint32_t internal = _getDeviceX10K();
         probe = (internal - probe) + internal;
     }
     return probe;
-}
-
-/*
-  This is the isolated hot-junction thermocouple voltage output.
-  ie. before the cold-junction block's voltage is added in.
-*/
-DFLOAT MAX31855K::getHotJunctionVout() const
-{
-    DFLOAT vout = FLT_MAX;
-
-    if (isValid()) {
-        sint32_t probe    = _getProbeEM04();
-        sint32_t internal = _getDeviceEM04();
-        vout = 41.276E-06 * DFLOAT(probe - internal) * 1.0E-04;
-    }
-    return vout;
 }
 
 
@@ -431,7 +412,7 @@ DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) cons
       MAX31855's operating range of -40 to +125 degrees Celsius. The NIST table
       limits would allowed values far exceeding the MAX31855K operating range.
     */
-    if (isMAX31855InOperationRange(coldJunctionC)) {  // This is less than NIST table range
+    if (isMAX31855InOperationRange(coldJunctionC)) {
         DFLOAT mV = voutMv + type_k_celsius_to_mv(coldJunctionC);
         if (is_type_k_mv_in_range(mV)) {
             return type_k_mv_to_celsius(mV);
@@ -451,7 +432,7 @@ DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) cons
 
 /*
   Supports faster integer math when implimenting temperature control thresholds
-  for tuning device on/off. Generate a probeEM04 value for matching a real
+  for turning device on/off. Estamate a probeX10K value for matching a real
   temperature to the uncorrected nonlinear reading from the MAX31855K.
 
   Wide swings in ambient, Cold Junction, temperature will increase error
@@ -459,14 +440,13 @@ DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) cons
   are larger than the Cold Junction temperature. The Cold Junction temperature
   becomes a smaller component in the equation.
 
-  A workaround would be to periodicly refresh the threshold calculations.
+  A work-around would be to periodicly refresh the threshold calculations.
 */
-sint32_t MAX31855K::convertC2ProbeEM04(const DFLOAT hj, const DFLOAT cj) const
+sint32_t MAX31855K::convertC2ProbeX10K(const DFLOAT hj, const DFLOAT cj) const
 {
-    constexpr DFLOAT kvc = 41.276E-06; //type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
-    DFLOAT hotJunctionV = (type_k_celsius_to_mv(hj) - type_k_celsius_to_mv(cj)) * 1.0E-03;
-    DFLOAT coldJunctionV = cj * kvc;
-    return ((hotJunctionV + coldJunctionV) / kvc * 1.0E04);  // * 1.0E-04
+    DFLOAT hotJunctionV = milliVolt2Volt(type_k_celsius_to_mv(hj) - type_k_celsius_to_mv(cj));
+    DFLOAT coldJunctionV = cj * kSensitivityVoC;
+    return sint32X10K((hotJunctionV + coldJunctionV) / kSensitivityVoC);
 }
 //
 // End - MAX31855K Type K Thermocouple library

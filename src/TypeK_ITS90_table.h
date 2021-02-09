@@ -1,5 +1,11 @@
 #ifndef TYPEK_ITS90_TABLE_H
 #define TYPEK_ITS90_TABLE_H
+//////////////////////////////////////////////////////////////////////////////
+// Things the linter cannot find  ¯\_(ツ)_/¯
+#ifdef GCC_LINTER
+#define FLT_MAX		__FLT_MAX__
+#define DFLOAT float
+#endif
 
 #ifndef PROGMEM
 #define PROGMEM
