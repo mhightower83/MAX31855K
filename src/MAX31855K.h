@@ -120,8 +120,8 @@ ALWAYS_INLINE constexpr DFLOAT volt2MilliVolt(const DFLOAT mV) { return mV * 1.0
 ALWAYS_INLINE constexpr DFLOAT celsius2Fahrenheit(const DFLOAT c) { return c * 1.8 + 32; }
 ALWAYS_INLINE constexpr DFLOAT fahrenheit2Celsius(const DFLOAT f) { return (f - 32) / 1.8; }
 
-constexpr sint32_t kProbeX10K    = sint32X10K(DFLOAT(0.25));    // Thermocouple data resolution
-constexpr sint32_t kInternalX10K = sint32X10K(DFLOAT(0.0625));  // Cold-Junction temperature data resolution
+constexpr sint32_t kProbeX10K    = sint32X10K(DFLOAT(0.25));    // Thermocouple data resolution * 10000
+constexpr sint32_t kInternalX10K = sint32X10K(DFLOAT(0.0625));  // Cold-Junction temperature data resolution * 10000
 // Over the range: 0 to 1000 degrees for Type K thermocouple. "kTypeKSensitivityVoC"
 // could be calculated with type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
 // This is a straight line fit to nonlinear data.
@@ -160,28 +160,6 @@ struct MAX31855_BITMAP {
 
 class MAX31855K {
 public:
-    union Thermocouple {
-        MAX31855_BITMAP parse;
-        uint32_t raw32;
-    };
-private:
-    SPIPins _pins;
-    bool    _swap_leads;
-    sint32_t _zero_cal;       // add to MAX31855_BITMAP.probe value to get zero for 0 degrees Celsius
-    uint32_t _errors;
-    Thermocouple _thermocouple;
-    Thermocouple _lastError;
-    sint32_t _getProbeX10K() const {
-        return get31855X10K(parceData().probe, parceData().internal, _zero_cal, _swap_leads).hot;
-    }
-    sint32_t _getDeviceX10K() const { return parceData().internal * kInternalX10K; }// 0.0625 * 10000;
-
-
-public:
-    const SPIPins& getSPIPins() const { return _pins; }
-    bool beginSPI(const SPIPins cfg);
-    void endSPI() {};
-
     /*
       D2 - SCV Fault
         This bit is a 1 when the thermocouple is short-circuited to VCC.
@@ -209,13 +187,33 @@ public:
         ERROR_MASK = (ANY | FAULT | RES)
     };
 
+    union Thermocouple {
+        MAX31855_BITMAP parse;
+        uint32_t raw32;
+    };
+
+private:
+    SPIPins _pins;
+    bool    _swap_leads;
+    sint32_t _zero_cal;       // add to MAX31855_BITMAP.probe value to get zero for 0 degrees Celsius
+    uint32_t _errors;
+    Thermocouple _thermocouple;
+    Thermocouple _lastError;
+    sint32_t _getProbeX10K() const {
+        return get31855X10K(parceData().probe, parceData().internal, _zero_cal, _swap_leads).hot;
+    }
+    sint32_t _getDeviceX10K() const { return parceData().internal * kInternalX10K; }
+
+public:
+    const SPIPins& getSPIPins() const { return _pins; }
+    bool beginSPI(const SPIPins cfg);
+    void endSPI() {};
 
     MAX31855K() { _swap_leads = false; _zero_cal = 0; _errors = 0; };
     bool begin(const SPIPins cfg) { return beginSPI(cfg); }
     void end() {}
     void setSwapLeads(bool b) { _swap_leads = b; }
     bool getSwapLeads() const { return _swap_leads; }
-
     void setZeroCal(sint32_t cal) { _zero_cal = cal; }
     void setZeroCal() { setZeroCal(parceData().probe); }
     sint32_t getZeroCal() const { return _zero_cal; }

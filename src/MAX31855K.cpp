@@ -375,13 +375,31 @@ uint32_t MAX31855K::spiRead32(void)
 
   "thermocouple-calculations" gives a good perspective of how we get the
   hot-thermocouple temperature w/o using an ice bath for the reference end.
-  SBAA274 adds a lot of design depth to the thermocouple discussion.
+  TI's application note SBAA274 adds a lot of design depth to the thermocouple
+  discussion.
 */
 
 /*
   The probe temperature (thermocouple) value provided by the MAX31855 is
-  compensated for cold junction temperature. It also assumes a linear response
-  from the non-linear (mostly linear) type K thermocouple.
+  compensated for the cold-junction temperature. It also assumes a linear
+  response from the non-linear (mostly linear) type K thermocouple.
+
+  To use the ITS90 polynomial to get a linearied voltage reading, we need the
+  mV reading of the hot-thermocouple and the mV reading of the mV reading of the
+  cold-thermocouple.
+
+  What we get from the MAX31855K is a temperature reading of the chip's die
+  (internal) in the MAX31855K in degrees Celsius. This can be used to derive the
+  Cold-Junction thermocouple mV output, by using the ITS90 coversion
+  coefficients.
+
+  For the Hot-Junction (probe) side of the equation, the MAX31855K gives us an
+  approxamation of the probe temperature. Based on die temperature plus mV
+  reading from the thermocouple (probe) times  a constant based on a straight
+  line slope (V/degrees C) for a K thermocouple  calculate from the mV endpoints
+  for the range of 0 to 1000 degrees Celsius, 41.276E-06V/degrees C. This value
+  can be reversed back to the mV reading by V = (T_C_probe - T_C_internal) *
+  41.276E-06V/degrees C
 */
 
 DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) const
