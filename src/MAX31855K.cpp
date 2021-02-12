@@ -29,12 +29,6 @@
 #define DEBUG_PRINTF CONSOLE_PRINTF
 #define CONSOLE_PRINTF(a, ...) Serial.printf_P(PSTR(a), ##__VA_ARGS__)
 #endif
-#ifndef ALWAYS_INLINE
-#define ALWAYS_INLINE inline __attribute__ ((always_inline))
-#endif
-#ifndef NOINLINE
-#define NOINLINE __attribute__((noinline))
-#endif
 #ifdef DEBUG_ESP_PORT
 #define CONSOLE DEBUG_ESP_PORT
 #else
@@ -42,14 +36,12 @@
 #endif
 #endif
 
-//////////////////////////////////////////////////////////////////////////////
-
-extern "C" uint32_t ets_get_cpu_frequency(void);
-
 ///////////////////////////////////////////////////////////////////////////////
 // Tuned Delays specific to the ESP8266
 //
 #if defined(ARDUINO_ARCH_ESP8266)
+
+extern "C" uint32_t ets_get_cpu_frequency(void);
 
 ALWAYS_INLINE static
 void _delayCycles(uint32_t delay_count) {
@@ -127,17 +119,12 @@ void _IoCommit() {
       "extw\n\t");    // 1 or more cycles, maybe 3
 }
 
-#endif    // ARDUINO_ARCH_ESP8266
-//
-///////////////////////////////////////////////////////////////////////////////
-
 ///////////////////////////////////////////////////////////////////////////////
 // Optomized delays needed for implimenting a software based SPI Bus for
 // communicating with the MAX31855.
 //
 ALWAYS_INLINE void delay100nsMin()
 {
-#if defined(ARDUINO_ARCH_ESP8266)
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
 #if defined(F_CPU) && (F_CPU == 160000000L)
@@ -148,14 +135,10 @@ ALWAYS_INLINE void delay100nsMin()
   _delay25nsNop();  // Net 100 - 112.5ns
   _delay12D5nsNop();  // a little extra for slow rise times cause with resistor pullups
 #endif
-#else
-    delayMicroseconds(1);
-#endif
 }
 
-ALWAYS_INLINE void delay200nsMin(void)
+ALWAYS_INLINE void delay200nsMin()
 {
-#if defined(ARDUINO_ARCH_ESP8266)
 #if defined(F_CPU) && (F_CPU == 160000000L)
   _delayCycles(32);
 #else
@@ -164,17 +147,11 @@ ALWAYS_INLINE void delay200nsMin(void)
   // _delay50nsNop();  // Net 200 - 212.5ns
   // _delay12D5nsNop();
 #endif
-
-#else
-    delayMicroseconds(1);
-#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // For tuning and testing SPI delay code
 //
-#if defined(ARDUINO_ARCH_ESP8266)
-
 ALWAYS_INLINE uint32_t protoSPIDelay100(uint32_t cycles) {
 // Approximately 12.5ns/cycle at 80MHz and 6.25ns/cycle for 160MHz.
 // It doesn't take long to reach 100ns.
@@ -247,10 +224,23 @@ void testDelay100nsMin() {
   delay = protoSPIDelay200(cycles);
   CONSOLE_PRINTF("Elapsed time for SPI_DELAY_200, %4.2fns, %u cycles\r\n", delay * 1000. / freq, delay);
 }
-#endif // ARDUINO_ARCH_ESP8266
 //
 // end of Optomized delay and tuning SPI delay code
 ///////////////////////////////////////////////////////////////////////////////
+
+#else
+ALWAYS_INLINE void delay200nsMin()
+{
+    delayMicroseconds(1);
+}
+ALWAYS_INLINE void delay100nsMin()
+{
+    delayMicroseconds(1);
+}
+void testDelay100nsMin(){}
+
+#define IRAM_ATTR
+#endif // ARDUINO_ARCH_ESP8266
 
 ///////////////////////////////////////////////////////////////////////////////
 // SPI Bus - melding Soft and HW based handling
@@ -258,12 +248,12 @@ void testDelay100nsMin() {
 //
 bool MAX31855K::beginSPI(const SPIPins cfg)
 {
-    // _cs         = cfg._cs;
-    // _sck        = cfg._sck;
-    // _miso       = cfg._miso;
-    // _mosi       = cfg._mosi;
-    // _hw         = cfg._hw;
-    // _softCs     = cfg._softCs;
+    // cs
+    // sck
+    // miso
+    // mosi
+    // hw
+    // softCs
     _pins = cfg;
 
     if (_pins.hw) {
@@ -297,7 +287,7 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
     return read();      // Test pin configuration
 }
 
-// Keep keep timing parts in fast IRAM
+// Keep timing parts in fast IRAM
 NOINLINE IRAM_ATTR static
 uint32_t _spiRead32(const SPIPins& pins)
 {
@@ -393,17 +383,6 @@ uint32_t MAX31855K::spiRead32(void)
   compensated for cold junction temperature. It also assumes a linear response
   from the non-linear (mostly linear) type K thermocouple.
 */
-sint32_t MAX31855K::_getProbeX10K() const
-{
-    sint32_t probe   = (parceData().probe - _zero_cal) * 2500;  // 0.25 * 10000
-    if (_swap_leads) {
-        // Fix miss wired thermocouple, polarity reversed.
-        sint32_t internal = _getDeviceX10K();
-        probe = (internal - probe) + internal;
-    }
-    return probe;
-}
-
 
 DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) const
 {
@@ -445,8 +424,8 @@ DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) cons
 sint32_t MAX31855K::convertC2ProbeX10K(const DFLOAT hj, const DFLOAT cj) const
 {
     DFLOAT hotJunctionV = milliVolt2Volt(type_k_celsius_to_mv(hj) - type_k_celsius_to_mv(cj));
-    DFLOAT coldJunctionV = cj * kSensitivityVoC;
-    return sint32X10K((hotJunctionV + coldJunctionV) / kSensitivityVoC);
+    DFLOAT coldJunctionV = cj * kTypeKSensitivityVoC;
+    return sint32X10K((hotJunctionV + coldJunctionV) / kTypeKSensitivityVoC);
 }
 //
 // End - MAX31855K Type K Thermocouple library

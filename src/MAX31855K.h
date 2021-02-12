@@ -31,6 +31,9 @@
 #ifndef ALWAYS_INLINE
 #define ALWAYS_INLINE inline __attribute__ ((always_inline))
 #endif
+#ifndef NOINLINE
+#define NOINLINE __attribute__((noinline))
+#endif
 
 #define DFLOAT float //double
 
@@ -53,7 +56,11 @@ public:
                      // For Software SPI you can use 0
     uint8_t hw;
     uint8_t softCs;
-
+#if defined(ARDUINO_ARCH_ESP8266)
+    // These defaults are for HSPI on the ESP8266
+    // If a CS other than 15 is used, soft chip select is used with HW SPI.
+    // If any of the other pins are not default the library switches over to
+    // Software SPI.
     SPIPins(uint32_t _cs=15, uint8_t _sck=14, uint8_t _miso=12, uint8_t _mosi=13, bool _autoHw=true)
     : cs(_cs)
     , sck(_sck)
@@ -71,6 +78,30 @@ public:
             }
         }
     }
+
+#else
+    SPIPins(uint32_t _cs, uint8_t _sck, uint8_t _miso, uint8_t _mosi,  uint8_t _mosi, bool _autoHw=true))
+    : cs(_cs)
+    , sck(_sck)
+    , miso(_miso)
+    , mosi(_mosi) {
+      (void)_autoHw;
+        hw     = false;
+        softCs = true;
+        if (UINT8_MAX == _cs) {
+            softCs = false;
+        }
+        if (UINT8_MAX == _sck) {
+            hw = true;
+        }
+    }
+    SPIPins() {
+        SPIPins(UINT8_MAX, UINT8_MAX, UINT8_MAX, UINT8_MAX);
+    }
+    SPIPins(uint32_t _cs) {
+        SPIPins(_cs, UINT8_MAX, UINT8_MAX, UINT8_MAX);
+    }
+#endif
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -80,14 +111,41 @@ ALWAYS_INLINE constexpr bool isMAX31855InOperationRange(const DFLOAT t) {
     return (125. >= t && -40. <= t);
 }
 
-// conversions
-ALWAYS_INLINE DFLOAT floatX10K(sint32_t t) { return DFLOAT(t * 1E-04); }
-ALWAYS_INLINE sint32_t sint32X10K(DFLOAT t) { return sint32_t(round(t * 1E04)); }
-ALWAYS_INLINE sint32_t sint32X10K(sint32_t t) { return sint32_t(t * 10000); }
-ALWAYS_INLINE DFLOAT milliVolt2Volt(DFLOAT mV) { return mV * 1.0E-03; }
-ALWAYS_INLINE DFLOAT volt2MilliVolt(DFLOAT mV) { return mV * 1.0E03; }
-ALWAYS_INLINE DFLOAT celsius2Fahrenheit(DFLOAT c) { return c * 1.8 + 32; }
-ALWAYS_INLINE DFLOAT fahrenheit2Celsius(DFLOAT f) { return (f - 32) / 1.8; }
+// inline conversions
+ALWAYS_INLINE constexpr DFLOAT floatX10K(const sint32_t t) { return DFLOAT(t * 1E-04); }
+ALWAYS_INLINE constexpr sint32_t sint32X10K(const DFLOAT t) { return sint32_t(round(t * 1E04)); }
+ALWAYS_INLINE constexpr sint32_t sint32X10K(const sint32_t t) { return sint32_t(t * 10000); }
+ALWAYS_INLINE constexpr DFLOAT milliVolt2Volt(const DFLOAT mV) { return mV * 1.0E-03; }
+ALWAYS_INLINE constexpr DFLOAT volt2MilliVolt(const DFLOAT mV) { return mV * 1.0E03; }
+ALWAYS_INLINE constexpr DFLOAT celsius2Fahrenheit(const DFLOAT c) { return c * 1.8 + 32; }
+ALWAYS_INLINE constexpr DFLOAT fahrenheit2Celsius(const DFLOAT f) { return (f - 32) / 1.8; }
+
+constexpr sint32_t kProbeX10K    = sint32X10K(DFLOAT(0.25));    // Thermocouple data resolution
+constexpr sint32_t kInternalX10K = sint32X10K(DFLOAT(0.0625));  // Cold-Junction temperature data resolution
+// Over the range: 0 to 1000 degrees for Type K thermocouple. "kTypeKSensitivityVoC"
+// could be calculated with type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
+// This is a straight line fit to nonlinear data.
+constexpr DFLOAT kTypeKSensitivityVoC = 41.276E-06; // Use constant specified in the MAX313855K datasheet.
+
+struct Meter31855X10K {
+    sint32_t hot;     // aka. Hot-Junction, hot-probe, probe, thermocouple
+    sint32_t cold;    // aka. Cold-Junction, cold-block, device, ambient, internal, reference
+};
+struct Meter31855 {
+    DFLOAT hot;
+    DFLOAT cold;
+};
+ALWAYS_INLINE Meter31855X10K get31855X10K(const sint32_t probe, const sint32_t internal, const sint32_t zero_cal=0, const bool swap_leads=false) {
+    Meter31855X10K valueX10K;
+    valueX10K.hot  = (probe + zero_cal) * kProbeX10K;  // 0.25 * 10000
+    valueX10K.cold = internal * kInternalX10K;         // 0.0625 * 10000
+    if (swap_leads) {
+        // Fix cross wired thermocouple, polarity reversed.
+        valueX10K.hot = (valueX10K.cold - valueX10K.hot) + valueX10K.cold;
+    }
+    return valueX10K;
+}
+
 
 struct MAX31855_BITMAP {
     bool     oc:1;            // =1, thermocouple connection is open
@@ -102,11 +160,8 @@ struct MAX31855_BITMAP {
 
 class MAX31855K {
 public:
-    // Over the range: 0 to 1000 degrees for Type K thermocouple. "kSensitivityVoC"
-    // could be calculated with type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
-    const DFLOAT kSensitivityVoC = 41.276E-06; // Use constant specified in the MAX313855K datasheet.
     union Thermocouple {
-        struct MAX31855_BITMAP parse;
+        MAX31855_BITMAP parse;
         uint32_t raw32;
     };
 private:
@@ -114,10 +169,13 @@ private:
     bool    _swap_leads;
     sint32_t _zero_cal;       // add to MAX31855_BITMAP.probe value to get zero for 0 degrees Celsius
     uint32_t _errors;
-    union Thermocouple _thermocouple;
-    union Thermocouple _lastError;
-    sint32_t _getProbeX10K() const;  // convert with float(_getProbeX10K()) * 1.0E-04;
-    sint32_t _getDeviceX10K() const { return parceData().internal * 625; }// 0.0625 * 10000;
+    Thermocouple _thermocouple;
+    Thermocouple _lastError;
+    sint32_t _getProbeX10K() const {
+        return get31855X10K(parceData().probe, parceData().internal, _zero_cal, _swap_leads).hot;
+    }
+    sint32_t _getDeviceX10K() const { return parceData().internal * kInternalX10K; }// 0.0625 * 10000;
+
 
 public:
     const SPIPins& getSPIPins() const { return _pins; }
@@ -161,7 +219,7 @@ public:
     void setZeroCal(sint32_t cal) { _zero_cal = cal; }
     void setZeroCal() { setZeroCal(parceData().probe); }
     sint32_t getZeroCal() const { return _zero_cal; }
-    //D sint32_t getZeroCalX10K() const { return getZeroCal() * 2500; }
+    //D sint32_t getZeroCalX10K() const { return getZeroCal() * kProbeX10K; }
 
     uint32_t spiRead32();
     bool isValid(uint32_t raw_u32) const {
@@ -175,12 +233,12 @@ public:
     }
     bool read() {
         _thermocouple.raw32 = spiRead32();
-        if (!isValid()) {
-          _errors++;
-          _lastError.raw32 = _thermocouple.raw32;
-          return false;
+        if (isValid()) {
+            return true;
         }
-        return true;
+        _errors++;
+        _lastError.raw32 = _thermocouple.raw32;
+        return false;
     }
 
     // Access to unprocessed sample data
@@ -210,14 +268,16 @@ public:
     DFLOAT getHotJunction() const { return floatX10K(getProbeX10K()); }
     // This is the isolated hot-junction thermocouple voltage output.
     // ie. before the cold-junction block's voltage is added in.
-    DFLOAT getHotJunctionVout() const {
-        DFLOAT vout = FLT_MAX;
-        if (isValid()) {
-            vout = kSensitivityVoC * floatX10K(_getProbeX10K() - _getDeviceX10K());
-        }
-        return vout;
+    DFLOAT getHotJunctionVout(const sint32_t probeX10K, const sint32_t deviceX10K) const {
+        return kTypeKSensitivityVoC * floatX10K(probeX10K - deviceX10K);
     }
-    DFLOAT getColdJunctionVout() const { return getColdJunction() * kSensitivityVoC; };
+    DFLOAT getHotJunctionVout() const {
+        if (isValid()) {
+            return getHotJunctionVout(_getProbeX10K(), _getDeviceX10K());
+        }
+        return FLT_MAX;
+    }
+    DFLOAT getColdJunctionVout() const { return getColdJunction() * kTypeKSensitivityVoC; };
 
     // Float values "corrected" for non-linear properties of Type K thermocouple
     // using polynomial coefficients defined by ITS90
@@ -229,6 +289,11 @@ public:
         }
         return FLT_MAX;
     }
+    DFLOAT getITS90(const sint32_t probeX10K, const sint32_t deviceX10K) const {
+            return getITS90(
+                floatX10K(deviceX10K),
+                volt2MilliVolt(getHotJunctionVout(probeX10K, deviceX10K))); // (C, mV)
+    };
 
     // wrappers for linear corrected values
     DFLOAT getC() const { return getITS90(); };
