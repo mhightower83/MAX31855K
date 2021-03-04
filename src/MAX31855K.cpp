@@ -409,7 +409,9 @@ DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) cons
       MAX31855's operating range of -40 to +125 degrees Celsius. The NIST table
       limits would allowed values far exceeding the MAX31855K operating range.
     */
-    if (isMAX31855InOperationRange(coldJunctionC)) {
+    if (FLT_MAX != coldJunctionC
+    &&  FLT_MAX != voutMv
+    &&  isMAX31855InOperationRange(coldJunctionC)) {
         DFLOAT mV = voutMv + type_k_celsius_to_mv(coldJunctionC);
         if (is_type_k_mv_in_range(mV)) {
             return type_k_mv_to_celsius(mV);
@@ -441,6 +443,9 @@ DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) cons
 */
 sint32_t MAX31855K::convertC2ProbeX10K(const DFLOAT hj, const DFLOAT cj) const
 {
+    if (FLT_MAX == hj || FLT_MAX == cj)
+        return INT32_MAX;
+        
     DFLOAT hotJunctionV = milliVolt2Volt(type_k_celsius_to_mv(hj) - type_k_celsius_to_mv(cj));
     DFLOAT coldJunctionV = cj * kTypeKSensitivityVoC;
     return sint32X10K((hotJunctionV + coldJunctionV) / kTypeKSensitivityVoC);

@@ -112,13 +112,13 @@ ALWAYS_INLINE constexpr bool isMAX31855InOperationRange(const DFLOAT t) {
 }
 
 // inline conversions
-ALWAYS_INLINE constexpr DFLOAT floatX10K(const sint32_t t) { return DFLOAT(t * 1E-04); }
-ALWAYS_INLINE constexpr sint32_t sint32X10K(const DFLOAT t) { return sint32_t(round(t * 1E04)); }
-ALWAYS_INLINE constexpr sint32_t sint32X10K(const sint32_t t) { return sint32_t(t * 10000); }
-ALWAYS_INLINE constexpr DFLOAT milliVolt2Volt(const DFLOAT mV) { return mV * 1.0E-03; }
-ALWAYS_INLINE constexpr DFLOAT volt2MilliVolt(const DFLOAT mV) { return mV * 1.0E03; }
-ALWAYS_INLINE constexpr DFLOAT celsius2Fahrenheit(const DFLOAT c) { return c * 1.8 + 32; }
-ALWAYS_INLINE constexpr DFLOAT fahrenheit2Celsius(const DFLOAT f) { return (f - 32) / 1.8; }
+ALWAYS_INLINE constexpr DFLOAT floatX10K(const sint32_t t) { if (INT32_MAX == t) return FLT_MAX; return DFLOAT(t * 1E-04); }
+ALWAYS_INLINE constexpr sint32_t sint32X10K(const DFLOAT t) { if (FLT_MAX == t) return INT32_MAX; return sint32_t(round(t * 1E04)); }
+ALWAYS_INLINE constexpr sint32_t sint32X10K(const sint32_t t) { if (INT32_MAX == t) return INT32_MAX; return sint32_t(t * 10000); }
+ALWAYS_INLINE constexpr DFLOAT milliVolt2Volt(const DFLOAT mV) { if (FLT_MAX == mV) return FLT_MAX; return mV * 1.0E-03; }
+ALWAYS_INLINE constexpr DFLOAT volt2MilliVolt(const DFLOAT mV) { if (FLT_MAX == mV) return FLT_MAX; return mV * 1.0E03; }
+ALWAYS_INLINE constexpr DFLOAT celsius2Fahrenheit(const DFLOAT c) { if (FLT_MAX == c) return FLT_MAX; return c * 1.8 + 32; }
+ALWAYS_INLINE constexpr DFLOAT fahrenheit2Celsius(const DFLOAT f) { if (FLT_MAX == f) return FLT_MAX; return (f - 32) / 1.8; }
 
 constexpr sint32_t kProbeX10K    = sint32X10K(DFLOAT(0.25));    // Thermocouple data resolution * 10000
 constexpr sint32_t kInternalX10K = sint32X10K(DFLOAT(0.0625));  // Cold-Junction temperature data resolution * 10000
@@ -267,6 +267,7 @@ public:
     // This is the isolated hot-junction thermocouple voltage output.
     // ie. before the cold-junction block's voltage is added in.
     DFLOAT getHotJunctionVout(const sint32_t probeX10K, const sint32_t deviceX10K) const {
+        if (INT32_MAX == probeX10K || INT32_MAX == deviceX10K) return FLT_MAX;
         return kTypeKSensitivityVoC * floatX10K(probeX10K - deviceX10K);
     }
     DFLOAT getHotJunctionVout() const {
@@ -288,9 +289,9 @@ public:
         return FLT_MAX;
     }
     DFLOAT getITS90(const sint32_t probeX10K, const sint32_t deviceX10K) const {
-            return getITS90(
-                floatX10K(deviceX10K),
-                volt2MilliVolt(getHotJunctionVout(probeX10K, deviceX10K))); // (C, mV)
+        return getITS90(
+            floatX10K(deviceX10K),
+            volt2MilliVolt(getHotJunctionVout(probeX10K, deviceX10K))); // (C, mV)
     };
 
     // wrappers for linear corrected values
