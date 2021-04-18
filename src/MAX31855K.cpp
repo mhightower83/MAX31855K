@@ -143,6 +143,8 @@ ALWAYS_INLINE void delay200nsMin()
   _delayCycles(32);
 #else
   _delayCycles(14);
+  //D+ Next line
+  _delayCycles(14);     // debug
   // _delayCycles(8);   // 162.5ns, 13 cycles
   // _delay50nsNop();  // Net 200 - 212.5ns
   // _delay12D5nsNop();
@@ -272,18 +274,20 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
             digitalWrite(_pins.cs, HIGH);    // deselect
             pinMode(_pins.cs, OUTPUT);
         }
+    delay200nsMin();    // minimum CS# inactive time
         SPI.begin();
     } else {
         DEBUG_PRINTF("Soft SPI Configured");
+        pinMode(_pins.miso, INPUT_PULLUP); //INPUT);
         digitalWrite(_pins.cs, HIGH);       // deselect
         pinMode(_pins.cs, OUTPUT);
-        digitalWrite(_pins.sck, LOW);       // clock starts from low
+        delay200nsMin();
+        digitalWrite(_pins.sck, LOW);       // set inactive clock, starts from low
         pinMode(_pins.sck, OUTPUT);
-        pinMode(_pins.miso, INPUT);
+        delay100nsMin();
     }
     DEBUG_PRINTF(", Pin Assignment: SCK=%d, MISO=%d, MOSI=%d, CS=%d\r\n",
                   _pins.sck, _pins.miso, _pins.mosi, _pins.cs);
-    delay200nsMin();    // minimum CS# inactive time
     return read();      // Test pin configuration
 }
 
@@ -298,59 +302,72 @@ uint32_t _spiRead32(const SPIPins& pins)
 
     if (pins.hw) {
         // MAX serial clock frequency 5MHz
-        SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+        //+ SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+        SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
         if (pins.softCs) {
             // Arduino doc says CS is done after SPI.beginTransaction!
             digitalWrite(pins.cs, LOW);     // select
-            delay100nsMin(); // wait time for first bit valid - not sure this is needed here
+            //+ delay100nsMin(); // wait time for first bit valid - not sure this is needed here
+            delay200nsMin(); // wait time for first bit valid - not sure this is needed here
         }
         for (ssize_t i = 3; i >= 0; i--) {  // MSBFIRST little-endian
             value.u8[i] = SPI.transfer(0);
         }
         SPI.endTransaction();
     } else {
+        digitalWrite(pins.cs, LOW);      // CS# enable
+        ///+ delay100nsMin();                  // wait time for first bit valid
+        delay200nsMin();                  // overkill - wait time for first bit valid
+        // Soft SPI is now ready to read the 1st bit.
         for (size_t i = 0; i < 32; i++) {
             value.u32 = value.u32 << 1 | digitalRead(pins.miso);
             digitalWrite(pins.sck, HIGH);   // data read before rising clock edge
-            delay100nsMin();
+            //+ delay100nsMin();
+            delay200nsMin();
             digitalWrite(pins.sck, LOW);
-            delay100nsMin();
+            //+ delay100nsMin();
+            delay200nsMin();
         }
+        // SCK inactive clock left LOW!
     }
     return value.u32;
 }
 
 uint32_t MAX31855K::spiRead32(void)
 {
+    // Prep/confirm CS#, and SCK inactive state.
     if (_pins.softCs) {
-        if (_pins.hw) {
-            if (LOW == digitalRead(_pins.cs)) {
-                // make idle to restart process
-                digitalWrite(_pins.cs, HIGH);
-                delay200nsMin();              // minimum CS# inactive time
-            }
-        } else {
-            // Check for idle state
-            if (LOW == digitalRead(_pins.cs)
-            ||  LOW != digitalRead(_pins.sck)) {
-                // make idle to restart process
-                digitalWrite(_pins.cs, HIGH);
-                digitalWrite(_pins.sck, LOW); // Start soft SPI with SCK low before CS#
-                delay200nsMin();              // minimum CS# inactive time
-            }
-            digitalWrite(_pins.cs, LOW);      // select
-            delay100nsMin();                  // wait time for first bit valid
-            // Soft SPI is now ready to read the 1st bit.
+        // This code path is error recovery logic. While it should never happen,
+        // just make it right.
+        if (LOW == digitalRead(_pins.cs)) {
+            // Make CS# inactive for required 200ns to restart process
+            digitalWrite(_pins.cs, HIGH);
+            delay200nsMin();              // minimum CS# inactive time
+        }
+        if (LOW != digitalRead(_pins.sck)) {
+            // For MAX31855 SPI transfers, SCK must be in the inactive state
+            // before CS# is asserted. (Mode 0)
+            digitalWrite(_pins.sck, LOW);
+            delay100nsMin();
         }
     }
 
     uint32_t value = _spiRead32(_pins);
 
-    digitalWrite(_pins.cs, HIGH);  // deselect slave
+    // No harm if HW SPI, this may have already been done.
+    digitalWrite(_pins.cs, HIGH); // deselect slave
+    delay200nsMin();              // minimum CS# inactive time
+    // It is the upper levels responsibility to not call again for 200ns.
+    // This should be the natural logic flow. No new converted values will be
+    // available for 70-100ms. There is no point in being called sooner!
+    // Thus we skip adding a needless hard CPU wasting delay.
     /*
       TODO: Check timing with scope with attention to the rise/fall times with
       that resister/diode level translater on SCK and CS#.
     */
+    if (_fakeRead) {
+        value = _fakeRead;
+    }
     return value;
 }
 //
@@ -445,7 +462,7 @@ sint32_t MAX31855K::convertC2ProbeX10K(const DFLOAT hj, const DFLOAT cj) const
 {
     if (FLT_MAX == hj || FLT_MAX == cj)
         return INT32_MAX;
-        
+
     DFLOAT hotJunctionV = milliVolt2Volt(type_k_celsius_to_mv(hj) - type_k_celsius_to_mv(cj));
     DFLOAT coldJunctionV = cj * kTypeKSensitivityVoC;
     return sint32X10K((hotJunctionV + coldJunctionV) / kTypeKSensitivityVoC);

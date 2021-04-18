@@ -127,13 +127,23 @@ constexpr sint32_t kInternalX10K = sint32X10K(DFLOAT(0.0625));  // Cold-Junction
 // This is a straight line fit to nonlinear data.
 constexpr DFLOAT kTypeKSensitivityVoC = 41.276E-06; // Use constant specified in the MAX313855K datasheet.
 
+constexpr uint32_t kFakeRawSample = 0x3E801900u;    // Probe 1000 degrees C and 25 degrees ambient
+
 struct Meter31855X10K {
     sint32_t hot;     // aka. Hot-Junction, hot-probe, probe, thermocouple
     sint32_t cold;    // aka. Cold-Junction, cold-block, device, ambient, internal, reference
+    Meter31855X10K() {
+        hot = 0;
+        cold = 0;
+    }
 };
 struct Meter31855 {
     DFLOAT hot;
     DFLOAT cold;
+    Meter31855() {
+      hot = 0;
+      cold = 0;
+    }
 };
 ALWAYS_INLINE Meter31855X10K get31855X10K(const sint32_t probe, const sint32_t internal, const sint32_t zero_cal=0, const bool swap_leads=false) {
     Meter31855X10K valueX10K;
@@ -197,6 +207,7 @@ private:
     bool    _swap_leads;
     sint32_t _zero_cal;       // add to MAX31855_BITMAP.probe value to get zero for 0 degrees Celsius
     uint32_t _errors;
+    uint32_t _fakeRead;
     Thermocouple _thermocouple;
     Thermocouple _lastError;
     sint32_t _getProbeX10K() const {
@@ -209,7 +220,7 @@ public:
     bool beginSPI(const SPIPins cfg);
     void endSPI() {};
 
-    MAX31855K() { _swap_leads = false; _zero_cal = 0; _errors = 0; };
+    MAX31855K() { _swap_leads = false; _zero_cal = 0; _errors = 0; _fakeRead = 0;};
     bool begin(const SPIPins cfg) { return beginSPI(cfg); }
     void end() {}
     void setSwapLeads(bool b) { _swap_leads = b; }
@@ -218,6 +229,7 @@ public:
     void setZeroCal() { setZeroCal(parceData().probe); }
     sint32_t getZeroCal() const { return _zero_cal; }
     //D sint32_t getZeroCalX10K() const { return getZeroCal() * kProbeX10K; }
+    void setFakeRead(uint32_t val) { _fakeRead = val; }
 
     uint32_t spiRead32();
     bool isValid(uint32_t raw_u32) const {
@@ -232,7 +244,17 @@ public:
     bool read() {
         _thermocouple.raw32 = spiRead32();
         if (isValid()) {
-            return true;
+            uint32_t verify = spiRead32();
+            if (verify == _thermocouple.raw32) {
+                return true;
+            }
+            _thermocouple.raw32 = verify;
+            verify = spiRead32();
+            if (verify == _thermocouple.raw32 && isValid()) {
+                return true;
+            }
+            // return true;
+            _thermocouple.raw32 = 0;
         }
         _errors++;
         _lastError.raw32 = _thermocouple.raw32;

@@ -73,3 +73,6 @@ type_k_mv_to_celsius	KEYWORD2
 type_k_celsius_to_mv	KEYWORD2
 test_with_edge_data	KEYWORD2
 
+######################################
+# Constants (LITERAL1)
+######################################
