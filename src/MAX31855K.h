@@ -231,7 +231,6 @@ public:
     //D sint32_t getZeroCalX10K() const { return getZeroCal() * kProbeX10K; }
     void setFakeRead(uint32_t val) { _fakeRead = val; }
 
-    uint32_t spiRead32();
     bool isValid(uint32_t raw_u32) const {
         return
             0u == (ERROR_MASK & raw_u32)
@@ -241,25 +240,7 @@ public:
     bool isValid() const {
         return isValid(_thermocouple.raw32);
     }
-    bool read() {
-        _thermocouple.raw32 = spiRead32();
-        if (isValid()) {
-            uint32_t verify = spiRead32();
-            if (verify == _thermocouple.raw32) {
-                return true;
-            }
-            _thermocouple.raw32 = verify;
-            verify = spiRead32();
-            if (verify == _thermocouple.raw32 && isValid()) {
-                return true;
-            }
-            // return true;
-            _thermocouple.raw32 = 0;
-        }
-        _errors++;
-        _lastError.raw32 = _thermocouple.raw32;
-        return false;
-    }
+    bool read();
 
     // Access to unprocessed sample data
     const struct MAX31855_BITMAP& parceData() const { return _thermocouple.parse; }

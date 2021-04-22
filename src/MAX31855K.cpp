@@ -15,7 +15,39 @@
  */
 
 #include <Arduino.h>
+#include <interrupts.h>
+#if defined(ARDUINO_ARCH_ESP8266)
+#include "SPIEx.h"
+static ALWAYS_INLINE
+void fastDigitalWrite(uint8_t pin, uint8_t val) {
+  // An inline version of core's __digitalWrite, w/o the Waveform/PWM stops
+  // We will call the orginal digitalWrite at the start of SPI to get thos things done.
+  //
+  // stopWaveform(pin); // Disable any Tone or startWaveform on this pin
+  // _stopPWM(pin);     // and any analogWrites (PWM)
+  if (pin < 16) {
+    if (val) GPOS = (1 << pin);
+    else GPOC = (1 << pin);
+  } else if (pin == 16) {
+    if (val) GP16O |= 1;
+    else GP16O &= ~1;
+  }
+}
+static ALWAYS_INLINE
+int fastDigitalRead(uint8_t pin) {
+  // An inline version of core's __digitaRead.
+  if(pin < 16){
+    // #define GPIP(p) ((GPI & (1 << ((p) & 0xF))) != 0)
+    return GPIP(pin);
+  } else if(pin == 16){
+    return GP16I & 0x01;
+  }
+  return 0;
+}
+
+#else
 #include <SPI.h>
+#endif
 #include <float.h>
 
 // #define DEBUG_SKETCH
@@ -41,6 +73,9 @@
 //
 #if defined(ARDUINO_ARCH_ESP8266)
 
+#define EVAL_TIMING2
+// #define EVAL_TIMING
+#ifdef EVAL_TIMING
 extern "C" uint32_t ets_get_cpu_frequency(void);
 
 ALWAYS_INLINE static
@@ -143,8 +178,6 @@ ALWAYS_INLINE void delay200nsMin()
   _delayCycles(32);
 #else
   _delayCycles(14);
-  //D+ Next line
-  _delayCycles(14);     // debug
   // _delayCycles(8);   // 162.5ns, 13 cycles
   // _delay50nsNop();  // Net 200 - 212.5ns
   // _delay12D5nsNop();
@@ -230,7 +263,19 @@ void testDelay100nsMin() {
 // end of Optomized delay and tuning SPI delay code
 ///////////////////////////////////////////////////////////////////////////////
 
+
+
 #else
+// The time to execute digitalWrite() exceeds 40ns, 100ns and 200ns timing
+// minimums of the MAX31855. No delay functions needed on the ESP8266 between
+// digitalWrite() function calls. See `void spiReadTest(void)` for specific timings.
+ALWAYS_INLINE void delay100nsMin(){}
+ALWAYS_INLINE void delay200nsMin() {}
+#endif
+
+#else
+// These may not be needed as well for other architechtures; however, that would
+// need to be evaluated. Keep delays until it is otherwise known.
 ALWAYS_INLINE void delay200nsMin()
 {
     delayMicroseconds(1);
@@ -257,34 +302,39 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
     // hw
     // softCs
     _pins = cfg;
-
     if (_pins.hw) {
         // Try and configure Hardware SPI Bus, returns false if SPI Bus
         // hardware transfers are not supported for the pins chosen.
         _pins.hw = SPI.pins(_pins.sck, _pins.miso, _pins.mosi, _pins.cs);
+        // Note we can only use SPI Library if SPI.pins return true.
     }
     if (_pins.hw) {
         DEBUG_PRINTF("HW SPI Configured ");
         if (SS == _pins.cs) {   // GPIO15
             DEBUG_PRINTF("w/HW CS");
             SPI.setHwCs(true);
+            // From here out we leave all SPI bus pins to the Library to handle.
         } else if (0 != _pins.cs) {
             DEBUG_PRINTF("w/SW CS");
             _pins.softCs = true;
             digitalWrite(_pins.cs, HIGH);    // deselect
             pinMode(_pins.cs, OUTPUT);
+            // From here out we manage CS and leave all other SPI bus pins to the Library to handle.
         }
+    // Does this need to be inforced or will it happen naturally?
+    // What will the ESP8266 HW SPI do?
     delay200nsMin();    // minimum CS# inactive time
         SPI.begin();
     } else {
         DEBUG_PRINTF("Soft SPI Configured");
-        pinMode(_pins.miso, INPUT_PULLUP); //INPUT);
         digitalWrite(_pins.cs, HIGH);       // deselect
         pinMode(_pins.cs, OUTPUT);
-        delay200nsMin();
+        pinMode(_pins.miso, INPUT_PULLUP); //INPUT);
         digitalWrite(_pins.sck, LOW);       // set inactive clock, starts from low
         pinMode(_pins.sck, OUTPUT);
-        delay100nsMin();
+        delay200nsMin();
+        // From here forward we manage all SPI pins through software.
+        // We also use fastDigitalWrite to skip over redundant calls stop stop WaveForm etc.
     }
     DEBUG_PRINTF(", Pin Assignment: SCK=%d, MISO=%d, MOSI=%d, CS=%d\r\n",
                   _pins.sck, _pins.miso, _pins.mosi, _pins.cs);
@@ -293,7 +343,7 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
 
 // Keep timing parts in fast IRAM
 NOINLINE IRAM_ATTR static
-uint32_t _spiRead32(const SPIPins& pins)
+uint32_t spiRead32(const SPIPins& pins)
 {
     union {
       uint32_t u32;
@@ -301,75 +351,132 @@ uint32_t _spiRead32(const SPIPins& pins)
     } value;
 
     if (pins.hw) {
-        // MAX serial clock frequency 5MHz
-        //+ SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
-        SPI.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+#if defined(ARDUINO_ARCH_ESP8266)
+        // ESP8266 Hardware SPI notes
+        // HW CS# goes to enable state, low, 125ns before SCK's rising edge,
+        // sampling MISO. After 32 SCK cycles, SCK begins its falling edge to
+        // low 125ns after the last SCK rising edge. Now resting at low. CS#
+        // starts its change to the disabled state similtaniously with SCK
+        // falling edge. As would be expected with a Clock frequency set to 4MHz.
+        // ie. 250ns period.
+        // MAX serial clock frequency 5MHz use 4MHz
+
+        SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+        value.u32 = SPI.transfer32(0);
+#else
+        if (pins.softCs && LOW == digitalRead(pins.cs)) {
+            // Make CS# inactive for required 200ns to restart process
+            fastDigitalWrite(pins.cs, HIGH);
+            delay200nsMin();              // minimum CS# inactive time
+        }
+        // MAX serial clock frequency 5MHz use 4MHz
+        SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
         if (pins.softCs) {
             // Arduino doc says CS is done after SPI.beginTransaction!
             digitalWrite(pins.cs, LOW);     // select
-            //+ delay100nsMin(); // wait time for first bit valid - not sure this is needed here
-            delay200nsMin(); // wait time for first bit valid - not sure this is needed here
+            // ESP8266: For softCS first clock rise is ~2us from falling CS# no need for delay function.
+            // Due to processor execution time the 100ns delay after CS# is
+            // fullfilled by the code that must run to setup the SPI transfer.
+            // Hense, these delays are NOOPs for the ESP8266 build.
+            delay100nsMin(); // wait time for first bit valid
         }
         for (ssize_t i = 3; i >= 0; i--) {  // MSBFIRST little-endian
             value.u8[i] = SPI.transfer(0);
         }
-        SPI.endTransaction();
-    } else {
-        digitalWrite(pins.cs, LOW);      // CS# enable
-        ///+ delay100nsMin();                  // wait time for first bit valid
-        delay200nsMin();                  // overkill - wait time for first bit valid
-        // Soft SPI is now ready to read the 1st bit.
-        for (size_t i = 0; i < 32; i++) {
-            value.u32 = value.u32 << 1 | digitalRead(pins.miso);
-            digitalWrite(pins.sck, HIGH);   // data read before rising clock edge
-            //+ delay100nsMin();
-            delay200nsMin();
-            digitalWrite(pins.sck, LOW);
-            //+ delay100nsMin();
-            delay200nsMin();
+        if (pins.softCs) {
+            // For softCS rising CS# is ~2.6us from falling SCK
+            digitalWrite(pins.cs, HIGH); // deselect slave
         }
-        // SCK inactive clock left LOW!
+#endif
+        SPI.endTransaction();
+
+    } else {
+        // This code path is error recovery logic. While it should never happen,
+        // just make it right.
+        if (LOW == digitalRead(pins.cs) || LOW != digitalRead(pins.sck)) {
+            // CS# is in the wrong state, Must be inactive for at least 200ns
+            fastDigitalWrite(pins.cs, HIGH);
+            // For MAX31855 SPI transfers, SCK must be LOW
+            // before CS# is asserted. (Mode 0)
+            fastDigitalWrite(pins.sck, LOW);
+            delay200nsMin();              // minimum CS# inactive time
+        }
+        value.u32 = 0;
+        {
+            esp8266::InterruptLock lock;
+
+            fastDigitalWrite(pins.cs, LOW);         // CS# enable, 100ns wait time for first bit valid
+            // Soft SPI is now ready to read the 1st bit.
+            // CS# enable to SCK HIGH 412ns
+            for (size_t i = 0; i < 32; i++) {
+                delay100nsMin();
+                // SCK LOW for 435ns on all bits after 1st bit.
+                // For mode 0, Data is ready on rising edge of SCK
+                fastDigitalWrite(pins.sck, HIGH);
+                // Sample the bit, MISO, after rise.
+                value.u32 = value.u32 << 1 | fastDigitalRead(pins.miso);
+                delay100nsMin();
+                // SCK HIGH duration 891ns
+                // At each falling edge of SCK, the MAX31855 updates MISO with new bit
+                fastDigitalWrite(pins.sck, LOW);
+            }
+            // SCK inactive clock left LOW!
+            fastDigitalWrite(pins.cs, HIGH); // deselect slave
+        }
     }
     return value.u32;
 }
 
-uint32_t MAX31855K::spiRead32(void)
+#if defined(EVAL_TIMING2) & defined(ARDUINO_ARCH_ESP8266)
+IRAM_ATTR
+void spiReadTest(const SPIPins& pins)
 {
-    // Prep/confirm CS#, and SCK inactive state.
-    if (_pins.softCs) {
-        // This code path is error recovery logic. While it should never happen,
-        // just make it right.
-        if (LOW == digitalRead(_pins.cs)) {
-            // Make CS# inactive for required 200ns to restart process
-            digitalWrite(_pins.cs, HIGH);
-            delay200nsMin();              // minimum CS# inactive time
-        }
-        if (LOW != digitalRead(_pins.sck)) {
-            // For MAX31855 SPI transfers, SCK must be in the inactive state
-            // before CS# is asserted. (Mode 0)
-            digitalWrite(_pins.sck, LOW);
-            delay100nsMin();
-        }
+    // All readings much greater than 40ns, 100ns and 200ns timing minimums of
+    // the MAX31855. No delay functions needed on the ESP8266 between
+    // digitalWrite() function calls. Calculated value for compined
+    // digitalRead() is 500ns
+    if (!pins.hw && pins.softCs) {
+        // Timings are with 80MHz CPU clock.
+        // TODO: Gather timings for 160MHz
+        pinMode(0, INPUT_PULLUP);           // Results in (are for digitalWrite)
+        fastDigitalWrite(pins.sck, HIGH);   // This high lasted 375ns-380ns (1.7us)
+        fastDigitalWrite(pins.sck, LOW);    // This low lasted 400ns (1.61us)
+        fastDigitalWrite(pins.sck, HIGH);
+        fastDigitalWrite(pins.sck, LOW);
+        fastDigitalWrite(pins.sck, HIGH);   // This high lasted 375ns-380ns (1.7us)
+        fastDigitalWrite(pins.sck, LOW);    // This low last 900ns (2.11us) and includes time to call digitalRead()
+        fastDigitalWrite(pins.sck, fastDigitalRead(0)); // This high last 1.68us
+        fastDigitalWrite(pins.sck, LOW);
     }
+}
+#else
+static inline void spiReadTest() {}
+#endif
 
-    uint32_t value = _spiRead32(_pins);
+bool MAX31855K::read() {
+    spiReadTest(_pins);
 
-    // No harm if HW SPI, this may have already been done.
-    digitalWrite(_pins.cs, HIGH); // deselect slave
-    delay200nsMin();              // minimum CS# inactive time
     // It is the upper levels responsibility to not call again for 200ns.
+    // For the ESP8266 this timing limit is meet through normal code execution time.
+    //
     // This should be the natural logic flow. No new converted values will be
     // available for 70-100ms. There is no point in being called sooner!
     // Thus we skip adding a needless hard CPU wasting delay.
-    /*
-      TODO: Check timing with scope with attention to the rise/fall times with
-      that resister/diode level translater on SCK and CS#.
-    */
+
     if (_fakeRead) {
-        value = _fakeRead;
+        _thermocouple.raw32 = _fakeRead;
+        return true;
     }
-    return value;
+
+    _thermocouple.raw32 = spiRead32(_pins);
+    if (isValid()) {
+        return true;
+    }
+    _errors++;
+    _lastError.raw32 = _thermocouple.raw32;
+    return false;
 }
+
 //
 ///////////////////////////////////////////////////////////////////////////////
 
