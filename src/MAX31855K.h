@@ -145,9 +145,9 @@ struct Meter31855 {
       cold = 0;
     }
 };
-ALWAYS_INLINE Meter31855X10K get31855X10K(const sint32_t probe, const sint32_t internal, const sint32_t zero_cal=0, const bool swap_leads=false) {
+ALWAYS_INLINE Meter31855X10K get31855X10K(const sint32_t probe, const sint32_t internal, const sint32_t zero_cal_X10K=0, const bool swap_leads=false) {
     Meter31855X10K valueX10K;
-    valueX10K.hot  = (probe + zero_cal) * kProbeX10K;  // 0.25 * 10000
+    valueX10K.hot  = (probe * kProbeX10K)  - zero_cal_X10K;  // 0.25 * 10000
     valueX10K.cold = internal * kInternalX10K;         // 0.0625 * 10000
     if (swap_leads) {
         // Fix cross wired thermocouple, polarity reversed.
@@ -205,13 +205,13 @@ public:
 private:
     SPIPins _pins;
     bool    _swap_leads;
-    sint32_t _zero_cal;       // add to MAX31855_BITMAP.probe value to get zero for 0 degrees Celsius
+    sint32_t _zero_cal_X10K;       // add to MAX31855_BITMAP.probe value to get zero for 0 degrees Celsius
     uint32_t _errors;
     uint32_t _fakeRead;
     Thermocouple _thermocouple;
     Thermocouple _lastError;
     sint32_t _getProbeX10K() const {
-        return get31855X10K(parceData().probe, parceData().internal, _zero_cal, _swap_leads).hot;
+        return get31855X10K(parceData().probe, parceData().internal, _zero_cal_X10K, _swap_leads).hot;
     }
     sint32_t _getDeviceX10K() const { return parceData().internal * kInternalX10K; }
 
@@ -220,14 +220,17 @@ public:
     bool beginSPI(const SPIPins cfg);
     void endSPI() {};
 
-    MAX31855K() { _swap_leads = false; _zero_cal = 0; _errors = 0; _fakeRead = 0;};
+    MAX31855K() { _swap_leads = false; _zero_cal_X10K = 0; _errors = 0; _fakeRead = 0;};
     bool begin(const SPIPins cfg) { return beginSPI(cfg); }
     void end() {}
     void setSwapLeads(bool b) { _swap_leads = b; }
     bool getSwapLeads() const { return _swap_leads; }
-    void setZeroCal(sint32_t cal) { _zero_cal = cal; }
-    void setZeroCal() { setZeroCal(parceData().probe); }
-    sint32_t getZeroCal() const { return _zero_cal; }
+    void setZeroCal(sint32_t cal) { _zero_cal_X10K = cal; }
+    void setZeroCal() { setZeroCal(parceData().probe * kProbeX10K); }
+    void setReferenceCalLinearized(const DFLOAT ref, const DFLOAT hj, const DFLOAT cj);
+    void setZeroCalLinearized(const DFLOAT hj, const DFLOAT cj) { setReferenceCalLinearized(0.0, hj, cj); }
+
+    sint32_t getZeroCal() const { return _zero_cal_X10K; }
     //D sint32_t getZeroCalX10K() const { return getZeroCal() * kProbeX10K; }
     void setFakeRead(uint32_t val) { _fakeRead = val; }
 

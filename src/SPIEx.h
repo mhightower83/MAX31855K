@@ -1,9 +1,17 @@
 /*
  * SPI Extended
  *
- * Adds support for transfer32 method.
- * Replacement for transfer16 method. Does SPI transfer16 as a single 16-bit transfer.
- * Replaces SPI Class in local module
+ * Adds support for a transfer32 method.
+ * Replacement for the transfer16 method. Does SPI transfer16 as a single 16-bit transfer. Not two bytes.
+ * SPI Class wrapper to manaage CS
+ *
+ * This class is intended for use with SPI_PINS_HSPI, normal HSPI mode.
+ * Do not use if you need or plan to use SPI_PINS_HSPI_OVERLAP
+ * Normal HSPI mode (MISO = GPIO12, MOSI = GPIO13, SCLK = GPIO14);
+ * I see no way to support both similtaniously.
+ *
+ * To support multiple HSPI devices with different CS pins, create a new class
+ * instantiation for each CS pin used.
  *
  * There are some issues with CS and transfer size:
  *   https://github.com/esp8266/Arduino/pull/6423#issuecomment-523473404
@@ -19,38 +27,44 @@
  * Unrelated SPI issues
  * https://github.com/esp8266/Arduino/issues/5712 - SS issues
  * https://github.com/esp8266/Arduino/issues/5921
+ * https://github.com/esp8266/Arduino/discussions/7887#discussioncomment-386274
  */
 
 #ifndef SPIEX_H_
 #define SPIEX_H_
-#ifdef _SPI_H_INCLUDED
-#error "'SPIClass SPI' global conflict. This SPIEx.h replaces SPI.h previously included in this module."
-#endif
-
-
-#define NO_GLOBAL_SPI
 #include <SPI.h>
 #ifndef ALWAYS_INLINE
 #define ALWAYS_INLINE inline __attribute__ ((always_inline))
 #endif
 
 static ALWAYS_INLINE
-void __fastDigitalWrite(uint8_t pin, uint8_t val) {
+void _fastDigitalWrite(uint8_t pin, uint8_t val) {
     // Same as core's __digitalWrite, but w/o the Waveform stops
     // We will call the orginal digitalWrite at the start of SPI to get thos things done.
     //
     // stopWaveform(pin); // Disable any Tone or startWaveform on this pin
     // _stopPWM(pin);     // and any analogWrites (PWM)
+    uint32_t valMask = (1u << pin);
     if (pin < 16) {
-        if (val) GPOS = (1 << pin);
-        else GPOC = (1 << pin);
+        if (val) {
+            GPOS = valMask;
+            GPOS = valMask;
+        } else {
+            GPOC = valMask;
+            GPOC = valMask;
+        }
     } else if (pin == 16) {
-        if (val) GP16O |= 1;
-        else GP16O &= ~1;
+        if (val) {
+            GP16O |= 1;
+            GP16O |= 1;
+        } else {
+            GP16O &= ~1;
+            GP16O &= ~1;
+        }
     }
 }
 
-class SPIExClass : public SPIClass
+class SPIExClass //: public SPIClass
 {
 private:
     uint8_t _cs;
@@ -62,23 +76,46 @@ private:
       }
 
 public:
-    SPIExClass() {
-        _cs = 0;
-    }
-
+    SPIExClass() { _cs = 255u; }
+    /*
+     * pins acknowleges that the pin assignment specified supports Hardware SPI.
+     * Two configurations are available on the ESP8266 for HSPI.  Normal HSPI
+     * mode (MISO = GPIO12, MOSI = GPIO13, SCLK = GPIO14) and overlapped HSPI.
+     * Overlapped HSPI is not supported by this SPI Extension wrapper Class.
+     * On success, this class will always impliment Soft CS support for the
+     * specified GPIO value in `ss`.
+     */
     bool pins(int8_t sck, int8_t miso, int8_t mosi, int8_t ss) {
-        _cs = 0;
-        bool success = SPIClass::pins(sck, miso, mosi, ss);
-        if (success && 0 != ss && 15 != ss) {
-            _cs = ss; // Soft CS
+        _cs = 255u;
+        // Force SoftCS control for all CS pins that might get used for HSPI
+        bool success = SPI.pins(sck, miso, mosi, _cs);
+        if (success) {
+            _cs = ss;
         }
         return success;
+        // For now, no support for HSPI overlapped and always do SoftCS.
+        // bool success = SPI.pins(sck, miso, mosi, (0u == ss && 6u == sck) ? 0u : 255u );
+        // if (success && 6u != sck) {
     }
+    void begin() {
+        SPI.begin();
+        SPI.setHwCs(false);   // We always do SoftCS
+    }
+    void setHwCs(bool use) { (void)use; }
+    void end() { SPI.end(); }
+    void beginTransaction(SPISettings settings) {
+        if (255u != _cs) {
+            digitalWrite(_cs, HIGH);
+            pinMode(_cs, OUTPUT);
+            // delay200nsMin();              // minimum CS# inactive time
+        }
+        SPI.beginTransaction(settings); // SPISettings(4000000, MSBFIRST, SPI_MODE0));
+    }
+    void endTransaction(void) { SPI.endTransaction(); }
 
     uint32_t transfer32(uint32_t data) {
         return transfer32(data, !(SPI1C & (SPICWBO | SPICRBO)));
     }
-
     uint32_t IRAM_ATTR transfer32(uint32_t data, bool msb) {
         if (msb) {
             // MSBFIRST Byte first
@@ -86,65 +123,58 @@ public:
         }
 
         while(SPI1CMD & SPIBUSY) {}
-        // Set to 32Bits transfer
+        // Set to 32-Bits transfer
         setDataBits(32);
-
-        if (0 != _cs && LOW == digitalRead(_cs)) {
-            // Make CS# inactive for required 200ns to restart process
-            digitalWrite(_cs, HIGH);
-            // delay200nsMin();              // minimum CS# inactive time
-        }
-        if (0 != _cs) {
+        if (255u != _cs) {
             // Arduino doc says CS is done after SPI.beginTransaction!
-            __fastDigitalWrite(_cs, LOW);     // select
-            // ESP8266: For softCS first clock rise is ~2us from falling CS# no need for delay function.
-            // Due to processor execution time the 100ns delay after CS# is
-            // fullfilled by the code that must run to setup the SPI transfer.
-            // Hense, these delays are NOOPs for the ESP8266 build.
-            // delay100nsMin(); // wait time for first bit valid
+            _fastDigitalWrite(_cs, LOW);     // select
+            // TODO: ESP8266: Needs retesting for 80/160Mhz CPU clock when using _fastDigitalWrite().
+            //?? Due to processor execution time the 100ns delay after CS# is
+            //?? fullfilled by the code that must run to setup the SPI transfer.
+            //?? Hense, these delays are NOOPs for the ESP8266 build.
+            //?? delay100nsMin(); // wait time for first bit valid
         }
-
         SPI1W0 = data;
         SPI1CMD |= SPIBUSY;
         while(SPI1CMD & SPIBUSY) {}
         data = SPI1W0;
-
-        if (0 != _cs) {
-            // For softCS rising CS# is ~2.6us from falling SCK
-            __fastDigitalWrite(_cs, HIGH); // deselect slave
+        if (255u != _cs) {
+            // For softCS rising CS# is ____us from falling SCK
+            _fastDigitalWrite(_cs, HIGH); // deselect slave
         }
-
         if(msb) {
             data = __bswap32(data);
         }
         return data;
     }
-    // uint16_t transfer16(uint16_t data) {
-    //     return transfer16(data, !(SPI1C & (SPICWBO | SPICRBO)));
-    // }
-    //
-    // uint16_t transfer16(uint16_t data, bool msb) {
-    //     if (msb) {
-    //         // MSBFIRST Byte first
-    //         data = __bswap16(data);
-    //     }
-    //
-    //     while(SPI1CMD & SPIBUSY) {}
-    //     // Set to 32Bits transfer
-    //     setDataBits(16);
-    //     SPI1W0 = data;
-    //     SPI1CMD |= SPIBUSY;
-    //     while(SPI1CMD & SPIBUSY) {}
-    //     data = (uint16_t)(SPI1W0);
-    //     if (msb) {
-    //         data = __bswap16(data);
-    //     }
-    //     return data;
-    // }
+
+    uint16_t transfer16(uint16_t data) {
+        return transfer16(data, !(SPI1C & (SPICWBO | SPICRBO)));
+    }
+    uint16_t transfer16(uint16_t data, bool msb) {
+        if (msb) {
+            // MSBFIRST Byte first
+            data = __bswap16(data);
+        }
+
+        while(SPI1CMD & SPIBUSY) {}
+        // Set to 16-Bits transfer
+        setDataBits(16);
+        if (255u != _cs) {
+            _fastDigitalWrite(_cs, LOW);     // select
+        }
+        SPI1W0 = data;
+        SPI1CMD |= SPIBUSY;
+        while(SPI1CMD & SPIBUSY) {}
+        data = (uint16_t)(SPI1W0);
+        if (255u != _cs) {
+            _fastDigitalWrite(_cs, HIGH); // deselect slave
+        }
+        if (msb) {
+            data = __bswap16(data);
+        }
+        return data;
+    }
 };
 
-// #if !defined(NO_GLOBAL_INSTANCES) && !defined(NO_GLOBAL_SPI)
-static SPIExClass SPI;
-// extern SPIExClass SPIEx;
-// #else
 #endif

@@ -18,35 +18,41 @@
 #include <interrupts.h>
 #if defined(ARDUINO_ARCH_ESP8266)
 #include "SPIEx.h"
+SPIExClass SPIEx;
 static ALWAYS_INLINE
 void fastDigitalWrite(uint8_t pin, uint8_t val) {
-  // An inline version of core's __digitalWrite, w/o the Waveform/PWM stops
-  // We will call the orginal digitalWrite at the start of SPI to get thos things done.
-  //
-  // stopWaveform(pin); // Disable any Tone or startWaveform on this pin
-  // _stopPWM(pin);     // and any analogWrites (PWM)
-  if (pin < 16) {
-    if (val) GPOS = (1 << pin);
-    else GPOC = (1 << pin);
-  } else if (pin == 16) {
-    if (val) GP16O |= 1;
-    else GP16O &= ~1;
-  }
+    return _fastDigitalWrite(pin, val);
 }
+
 static ALWAYS_INLINE
-int fastDigitalRead(uint8_t pin) {
-  // An inline version of core's __digitaRead.
-  if(pin < 16){
+uint32_t fastDigitalRead(uint8_t pin) {
+  // An inline variation of core's __digitaRead.
+  uint32_t valOut = 0;
+  if (pin < 16){
+    // #define ESP8266_REG(addr) *((volatile uint32_t *)(0x60000000+(addr)))
+    // #define GPI    ESP8266_REG(0x318) //GPIO_IN RO (Read Input Level)
     // #define GPIP(p) ((GPI & (1 << ((p) & 0xF))) != 0)
-    return GPIP(pin);
+    valOut = GPI >> pin;
   } else if(pin == 16){
-    return GP16I & 0x01;
+    valOut = GP16I;
   }
-  return 0;
+  asm volatile("excw\n\t");
+  // return valOut & 0x01u;
+  return valOut;// & 0x01u;
 }
 
 #else
 #include <SPI.h>
+#define SPIEx SPI
+static ALWAYS_INLINE
+uint32_t fastDigitalRead(uint8_t pin) {
+    return (digitalRead(pin)) ? 1 : 0;
+}
+
+static ALWAYS_INLINE
+void fastDigitalWrite(uint8_t pin, uint8_t val) {
+    return digitalWrite(pin, val);
+}
 #endif
 #include <float.h>
 
@@ -289,6 +295,7 @@ void testDelay100nsMin(){}
 #define IRAM_ATTR
 #endif // ARDUINO_ARCH_ESP8266
 
+
 ///////////////////////////////////////////////////////////////////////////////
 // SPI Bus - melding Soft and HW based handling
 // TODO: This look very localized, maybe make into a separate common library.
@@ -305,26 +312,12 @@ bool MAX31855K::beginSPI(const SPIPins cfg)
     if (_pins.hw) {
         // Try and configure Hardware SPI Bus, returns false if SPI Bus
         // hardware transfers are not supported for the pins chosen.
-        _pins.hw = SPI.pins(_pins.sck, _pins.miso, _pins.mosi, _pins.cs);
+        _pins.hw = SPIEx.pins(_pins.sck, _pins.miso, _pins.mosi, _pins.cs);
         // Note we can only use SPI Library if SPI.pins return true.
     }
     if (_pins.hw) {
         DEBUG_PRINTF("HW SPI Configured ");
-        if (SS == _pins.cs) {   // GPIO15
-            DEBUG_PRINTF("w/HW CS");
-            SPI.setHwCs(true);
-            // From here out we leave all SPI bus pins to the Library to handle.
-        } else if (0 != _pins.cs) {
-            DEBUG_PRINTF("w/SW CS");
-            _pins.softCs = true;
-            digitalWrite(_pins.cs, HIGH);    // deselect
-            pinMode(_pins.cs, OUTPUT);
-            // From here out we manage CS and leave all other SPI bus pins to the Library to handle.
-        }
-    // Does this need to be inforced or will it happen naturally?
-    // What will the ESP8266 HW SPI do?
-    delay200nsMin();    // minimum CS# inactive time
-        SPI.begin();
+        SPIEx.begin();
     } else {
         DEBUG_PRINTF("Soft SPI Configured");
         digitalWrite(_pins.cs, HIGH);       // deselect
@@ -361,18 +354,25 @@ uint32_t spiRead32(const SPIPins& pins)
         // ie. 250ns period.
         // MAX serial clock frequency 5MHz use 4MHz
 
-        SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
-        value.u32 = SPI.transfer32(0);
+        SPIEx.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+        value.u32 = SPIEx.transfer32(0);
 #else
-        if (pins.softCs && LOW == digitalRead(pins.cs)) {
-            // Make CS# inactive for required 200ns to restart process
-            fastDigitalWrite(pins.cs, HIGH);
-            delay200nsMin();              // minimum CS# inactive time
+        if (pins.softCs) {
+            if (LOW == digitalRead(pins.cs)) {
+                // Make CS# inactive for required 200ns to restart process
+                fastDigitalWrite(pins.cs, HIGH);
+                delay200nsMin();              // minimum CS# inactive time
+            }
+        } else
+        if (SS == pins.cs) {   // GPIO15
+            DEBUG_PRINTF("w/HW CS");
+            SPIEx.setHwCs(true);
+            // From here out we leave all SPI bus pins to the Library to handle.
         }
         // MAX serial clock frequency 5MHz use 4MHz
-        SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+        SPIEx.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
         if (pins.softCs) {
-            // Arduino doc says CS is done after SPI.beginTransaction!
+            // Arduino doc says CS is done after SPIEx.beginTransaction!
             digitalWrite(pins.cs, LOW);     // select
             // ESP8266: For softCS first clock rise is ~2us from falling CS# no need for delay function.
             // Due to processor execution time the 100ns delay after CS# is
@@ -380,15 +380,15 @@ uint32_t spiRead32(const SPIPins& pins)
             // Hense, these delays are NOOPs for the ESP8266 build.
             delay100nsMin(); // wait time for first bit valid
         }
-        for (ssize_t i = 3; i >= 0; i--) {  // MSBFIRST little-endian
-            value.u8[i] = SPI.transfer(0);
+        for (ssize_t i = 3; i >= 0; i--) {  // MSBFIRST, little-endian
+            value.u8[i] = SPIEx.transfer(0);
         }
         if (pins.softCs) {
             // For softCS rising CS# is ~2.6us from falling SCK
             digitalWrite(pins.cs, HIGH); // deselect slave
         }
 #endif
-        SPI.endTransaction();
+        SPIEx.endTransaction();
 
     } else {
         // This code path is error recovery logic. While it should never happen,
@@ -401,7 +401,43 @@ uint32_t spiRead32(const SPIPins& pins)
             fastDigitalWrite(pins.sck, LOW);
             delay200nsMin();              // minimum CS# inactive time
         }
-        value.u32 = 0;
+        uint32_t vu32 = 0;
+#if 0
+                // {
+                //     esp8266::InterruptLock lock;
+                //
+                //     fastDigitalWrite(pins.cs, LOW);         // CS# enable, 100ns wait time for first bit valid
+                //     // Soft SPI is now ready to read the 1st bit.
+                //     // CS# enable to SCK HIGH 412ns
+                //     for (size_t i = 0; i < 32; i++) {
+                //         delay100nsMin();
+                //         // SCK LOW for 435ns on all bits after 1st bit.
+                //         // For mode 0, Data is ready on rising edge of SCK
+                //         fastDigitalWrite(pins.sck, HIGH);
+                //         // Sample the bit, MISO, after rise.
+                //         // value.u32 = value.u32 << 1 | fastDigitalRead(pins.miso);
+                //         uint32_t val = fastDigitalRead(pins.miso);
+                //         delay100nsMin();
+                //         // SCK HIGH duration 891ns
+                //         // At each falling edge of SCK, the MAX31855 updates MISO with new bit
+                //         fastDigitalWrite(pins.sck, LOW);
+                //         vu32 = vu32 << 1 | val;
+                //     }
+                //     // SCK inactive clock left LOW!
+                //     fastDigitalWrite(pins.cs, HIGH); // deselect slave
+                // }
+#else
+        /*
+         * The devices involved here have very sharp rise and fall times, which
+         * creates ringing and cross-talk. For mode0, MISO is read on the rising
+         * edge. Since our GPIO pins are not edge triggered and we are
+         * implementing a Soft SPI, we can either sample/read MISO just before
+         * or just after the rising edge. If we read imediately after, ringing
+         * or cross-talk may still be present in our signal. If we read just
+         * before the rising clock, their is time for the ringing to have
+         * decayed out from the previous transition. Hence, we will read the
+         * state imediately before the rising edge.
+         */
         {
             esp8266::InterruptLock lock;
 
@@ -409,20 +445,54 @@ uint32_t spiRead32(const SPIPins& pins)
             // Soft SPI is now ready to read the 1st bit.
             // CS# enable to SCK HIGH 412ns
             for (size_t i = 0; i < 32; i++) {
+                // Sample the bit, MISO, after rise.
+                // value.u32 = value.u32 << 1 | fastDigitalRead(pins.miso);
+                uint32_t misoVal = fastDigitalRead(pins.miso);
                 delay100nsMin();
+                //?? fastDigitalRead(pins.miso); // dummy read to balance on/off ratio
                 // SCK LOW for 435ns on all bits after 1st bit.
                 // For mode 0, Data is ready on rising edge of SCK
                 fastDigitalWrite(pins.sck, HIGH);
-                // Sample the bit, MISO, after rise.
-                value.u32 = value.u32 << 1 | fastDigitalRead(pins.miso);
                 delay100nsMin();
                 // SCK HIGH duration 891ns
                 // At each falling edge of SCK, the MAX31855 updates MISO with new bit
                 fastDigitalWrite(pins.sck, LOW);
+                vu32 = (vu32 << 1) | (1 & misoVal);
             }
+                    // uint32_t misoVal = fastDigitalRead(pins.miso);
+                    // fastDigitalWrite(pins.sck, HIGH);
+                    //
+                    // for (size_t i = 1; i < 32; i++) {
+                    //     // Sample the bit, MISO, after rise.
+                    //     // value.u32 = value.u32 << 1 | fastDigitalRead(pins.miso);
+                    //
+                    //     delay100nsMin();
+                    //     //?? fastDigitalRead(pins.miso); // dummy read to balance on/off ratio
+                    //     // SCK LOW for 435ns on all bits after 1st bit.
+                    //     // For mode 0, Data is ready on rising edge of SCK
+                    //     // fastDigitalWrite(pins.sck, HIGH);
+                    //     // vu32 <<= 1u;
+                    //     // misoVal &= 1u;
+                    //     // vu32 |= misoVal;
+                    //     vu32 = vu32 << 1u | (misoVal & 1u);
+                    //     delay100nsMin();
+                    //     // SCK HIGH duration 891ns
+                    //     // At each falling edge of SCK, the MAX31855 updates MISO with new bit
+                    //     fastDigitalWrite(pins.sck, LOW);
+                    //     misoVal = fastDigitalRead(pins.miso);
+                    //     fastDigitalWrite(pins.sck, HIGH);
+                    // }
+                    // // vu32 <<= 1u;
+                    // // misoVal &= 1u;
+                    // // vu32 |= misoVal;
+                    // vu32 = vu32 << 1u | (misoVal & 1u);
+                    // fastDigitalWrite(pins.sck, LOW);
             // SCK inactive clock left LOW!
             fastDigitalWrite(pins.cs, HIGH); // deselect slave
         }
+#endif
+        value.u32 = vu32;
+
     }
     return value.u32;
 }
@@ -436,17 +506,100 @@ void spiReadTest(const SPIPins& pins)
     // digitalWrite() function calls. Calculated value for compined
     // digitalRead() is 500ns
     if (!pins.hw && pins.softCs) {
-        // Timings are with 80MHz CPU clock.
+        // Timings are with 80MHz CPU clock. fastDigitalWrite vs (digitalWrite)
         // TODO: Gather timings for 160MHz
-        pinMode(0, INPUT_PULLUP);           // Results in (are for digitalWrite)
-        fastDigitalWrite(pins.sck, HIGH);   // This high lasted 375ns-380ns (1.7us)
-        fastDigitalWrite(pins.sck, LOW);    // This low lasted 400ns (1.61us)
+        pinMode(0, INPUT_PULLUP);
+        // for (size_t i = 0; i < 32; i++) {
+        //         uint32_t val = fastDigitalRead(pins.miso);
+        //         (void)val;
+        //         // delay100nsMin();
+        //         //?? fastDigitalRead(pins.miso); // dummy read to balance on/off ratio
+        //         // SCK LOW for 435ns on all bits after 1st bit.
+        //         // For mode 0, Data is ready on rising edge of SCK
+        //         fastDigitalWrite(pins.sck, HIGH);
+        //         // delay100nsMin();
+        //         // SCK HIGH duration 891ns
+        //         // At each falling edge of SCK, the MAX31855 updates MISO with new bit
+        //         fastDigitalWrite(pins.sck, LOW);
+        //         // vu32 = vu32 << 1 | val;
+        // }
+        uint32_t miso; (void)miso;
+#if 1
+        fastDigitalWrite(pins.sck, HIGH);   // This high lasted 87ns ()
+        fastDigitalWrite(pins.sck, LOW);    // This low lasted 87ns ()
+        fastDigitalWrite(pins.sck, HIGH);   // This high lasted 87ns ()
+        fastDigitalWrite(pins.sck, LOW);    // This low lasted 87ns ()
+        fastDigitalWrite(pins.sck, HIGH);   // This high lasted 87ns ()
+        fastDigitalWrite(pins.sck, HIGH);   // This high lasted 87ns ()
+        fastDigitalWrite(pins.sck, LOW);    // This low lasted 87ns ()
+        fastDigitalWrite(pins.sck, LOW);    // This low lasted 87ns ()
+        fastDigitalWrite(pins.sck, HIGH);
         fastDigitalWrite(pins.sck, HIGH);
         fastDigitalWrite(pins.sck, LOW);
+        fastDigitalRead(pins.miso);
+        fastDigitalWrite(pins.sck, HIGH);   // This high lasted ?ns ()
+        fastDigitalRead(pins.miso);
+        fastDigitalWrite(pins.sck, LOW);    // This low lasted ?ns ()
+        fastDigitalRead(pins.miso);
+        fastDigitalWrite(pins.sck, HIGH);
+        fastDigitalRead(pins.miso);
+        fastDigitalWrite(pins.sck, LOW);
+
         fastDigitalWrite(pins.sck, HIGH);   // This high lasted 375ns-380ns (1.7us)
         fastDigitalWrite(pins.sck, LOW);    // This low last 900ns (2.11us) and includes time to call digitalRead()
-        fastDigitalWrite(pins.sck, fastDigitalRead(0)); // This high last 1.68us
-        fastDigitalWrite(pins.sck, LOW);
+        // fastDigitalWrite(pins.sck, fastDigitalRead(0)); // This high last 1.68us
+        // fastDigitalWrite(pins.sck, LOW);
+#else
+{
+        esp8266::InterruptLock lock;
+
+        uint32_t sck_bit = (1u << pins.sck);
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        miso = GPI;
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        miso = GPI;
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        miso = GPI;
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        miso = GPI;
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+
+        GPOS = sck_bit;   // HIGH
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+        GPOC = sck_bit;   // LOW
+    asm volatile("excw\n\t"); // ensure previous I/O has finished, I have no idea if this is necessary.
+}
+#endif
     }
 }
 #else
@@ -573,6 +726,13 @@ sint32_t MAX31855K::convertC2ProbeX10K(const DFLOAT hj, const DFLOAT cj) const
     DFLOAT hotJunctionV = milliVolt2Volt(type_k_celsius_to_mv(hj) - type_k_celsius_to_mv(cj));
     DFLOAT coldJunctionV = cj * kTypeKSensitivityVoC;
     return sint32X10K((hotJunctionV + coldJunctionV) / kTypeKSensitivityVoC);
+}
+
+/*
+  Use reference temperature to calibrate for linearied Temperature
+*/
+void MAX31855K::setReferenceCalLinearized(const DFLOAT ref, const DFLOAT hj, const DFLOAT cj) {
+    setZeroCal(convertC2ProbeX10K(hj, cj) - convertC2ProbeX10K(ref, cj));
 }
 //
 // End - MAX31855K Type K Thermocouple library
