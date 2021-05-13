@@ -1,3 +1,7 @@
-# MAX31855K Library
+# WIP -
 
-Add description here
+## MAX31855K Library
+
+See Wifi
+
+Not recommended for cloning, may have a rebase in the future.

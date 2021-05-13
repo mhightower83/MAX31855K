@@ -39,26 +39,22 @@
 
 static ALWAYS_INLINE
 void _fastDigitalWrite(uint8_t pin, uint8_t val) {
-    // Same as core's __digitalWrite, but w/o the Waveform stops
-    // We will call the orginal digitalWrite at the start of SPI to get thos things done.
+    // Same as core's __digitalWrite, but w/o the Waveform stops. We will call
+    // the orginal digitalWrite at the start of SPI to get those things done.
     //
     // stopWaveform(pin); // Disable any Tone or startWaveform on this pin
     // _stopPWM(pin);     // and any analogWrites (PWM)
-    uint32_t valMask = (1u << pin);
     if (pin < 16) {
+        uint32_t valMask = (1u << pin);
         if (val) {
             GPOS = valMask;
-            GPOS = valMask;
         } else {
-            GPOC = valMask;
             GPOC = valMask;
         }
     } else if (pin == 16) {
         if (val) {
             GP16O |= 1;
-            GP16O |= 1;
         } else {
-            GP16O &= ~1;
             GP16O &= ~1;
         }
     }

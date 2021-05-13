@@ -80,7 +80,7 @@ public:
     }
 
 #else
-    SPIPins(uint32_t _cs, uint8_t _sck, uint8_t _miso, uint8_t _mosi,  uint8_t _mosi, bool _autoHw=true))
+    SPIPins(uint32_t _cs, uint8_t _sck, uint8_t _miso,  uint8_t _mosi, bool _autoHw=true))
     : cs(_cs)
     , sck(_sck)
     , miso(_miso)
