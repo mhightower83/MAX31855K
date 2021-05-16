@@ -1,6 +1,7 @@
 # WIP
 ## MAX31855K Library
-Cloning not recommended at this time, may have a rebase in the future.
+Cloning not recommended at this time, may have a rebase in the future. Use the zip file for now.
+
 
 At this time I leave all the minutiae details of this MAX31855K Library to the source code. Start with the `MAX31855K.h` file.
 
@@ -12,7 +13,9 @@ This Library is coded to support Arduino or Arduino ESP8266; however, I have onl
 
 Both hardware and software SPI Bus implementations are supported. 
 
-On the ESP8266 when using HSPI with hardware CS, be very careful with GPIO15 as ChipSelect. For this to work, you must **not** have a pull-up resistor on that pin! If you do, your device most likely will not boot. See [Boards](https://github.com/mhightower83/MAX31855K/wiki/Boards) for some examples of problem boards.
+On the ESP8266 when using HSPI with hardware CS, be very careful with GPIO15 as ChipSelect. For this to work, you must **not** have a pull-up resistor on that pin! If you do, your device most likely will not boot. See Troubleshooting - [ESP8266 Will Not Boot](https://github.com/mhightower83/MAX31855K/wiki/Troubleshooting#esp8266-will-not-boot) for specifics.
+
+[Presision](https://github.com/mhightower83/MAX31855K/wiki/Precision)
 
 [Boards](https://github.com/mhightower83/MAX31855K/wiki/Boards)
 
