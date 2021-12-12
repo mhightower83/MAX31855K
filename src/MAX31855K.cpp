@@ -23,7 +23,7 @@ SPIExClass SPIEx;
 static ALWAYS_INLINE
 void fastDigitalWrite(uint8_t pin, uint8_t val) {
     // Same as core's __digitalWrite, but w/o the Waveform stops
-    // We will call the orginal digitalWrite at the start of SPI to get thos things done.
+    // We will call the original digitalWrite at the start of SPI to get those things done.
     //
     // stopWaveform(pin); // Disable any Tone or startWaveform on this pin
     // _stopPWM(pin);     // and any analogWrites (PWM)
@@ -108,7 +108,7 @@ ALWAYS_INLINE void delay100nsMin() {}
 ALWAYS_INLINE void delay200nsMin() {}
 
 #else
-// These may not be needed as well for other architechtures; however, that would
+// These may not be needed as well for other architectures; however, that would
 // need to be evaluated. Keep delays until it is otherwise known.
 ALWAYS_INLINE void delay200nsMin()
 {
@@ -177,7 +177,7 @@ uint32_t spiRead32(const SPIPins& pins)
         // HW CS# goes to enable state, low, 125ns before SCK's rising edge,
         // sampling MISO. After 32 SCK cycles, SCK begins its falling edge to
         // low 125ns after the last SCK rising edge. Now resting at low. CS#
-        // starts its change to the disabled state similtaniously with SCK
+        // starts its change to the disabled state simultaneously with SCK
         // falling edge. As would be expected with a Clock frequency set to 4MHz.
         // ie. 250ns period.
         // MAX serial clock frequency 5MHz use 4MHz
@@ -204,8 +204,8 @@ uint32_t spiRead32(const SPIPins& pins)
             digitalWrite(pins.cs, LOW);     // select
             // ESP8266: For softCS first clock rise is ~2us from falling CS# no need for delay function.
             // Due to processor execution time the 100ns delay after CS# is
-            // fullfilled by the code that must run to setup the SPI transfer.
-            // Hense, these delays are NOOPs for the ESP8266 build.
+            // fulfilled by the code that must run to setup the SPI transfer.
+            // Hence, these delays are NOOPs for the ESP8266 build.
             delay100nsMin(); // wait time for first bit valid
         }
         for (ssize_t i = 3; i >= 0; i--) {  // MSBFIRST, little-endian
@@ -235,11 +235,11 @@ uint32_t spiRead32(const SPIPins& pins)
          * creates ringing and cross-talk. For mode0, MISO is read on the rising
          * edge. Since our GPIO pins are not edge triggered and we are
          * implementing a Soft SPI, we can either sample/read MISO just before
-         * or just after the rising edge. If we read imediately after, ringing
+         * or just after the rising edge. If we read immediately after, ringing
          * or cross-talk may still be present in our signal. If we read just
          * before the rising clock, their is time for the ringing to have
          * decayed out from the previous transition. Hence, we will read the
-         * state imediately before the rising edge.
+         * state immediate before the rising edge.
          */
         value.u32 = 0;
         {
@@ -263,7 +263,7 @@ uint32_t spiRead32(const SPIPins& pins)
                 // At each falling edge of SCK, the MAX31855 updates MISO with new bit
                 fastDigitalWrite(pins.sck, LOW);
                 // By delaying ORing in the bit read, until SCK goes low, the
-                // low state is streached. This allows more time for MISO data
+                // low state is stretched. This allows more time for MISO data
                 // to become valid from the MAX31855 and ringing to settle out
                 // before MISO is read.
                 value.u32 = (value.u32 << 1) | (1 & misoVal);
@@ -328,17 +328,17 @@ bool MAX31855K::read() {
   compensated for the cold-junction temperature. It also assumes a linear
   response from the non-linear (mostly linear) type K thermocouple.
 
-  To use the ITS90 polynomial to get a linearied voltage reading, we need the
+  To use the ITS90 polynomial to get a linearized voltage reading, we need the
   mV reading of the hot-thermocouple and the mV reading of the mV reading of the
   cold-thermocouple.
 
   What we get from the MAX31855K is a temperature reading of the chip's die
   (internal) in the MAX31855K in degrees Celsius. This can be used to derive the
-  Cold-Junction thermocouple mV output, by using the ITS90 coversion
+  Cold-Junction thermocouple mV output, by using the ITS90 conversion
   coefficients.
 
   For the Hot-Junction (probe) side of the equation, the MAX31855K gives us an
-  approxamation of the probe temperature. Based on die temperature plus mV
+  approximation of the probe temperature. Based on die temperature plus mV
   reading from the thermocouple (probe) times  a constant based on a straight
   line slope (V/degrees C) for a K thermocouple  calculate from the mV endpoints
   for the range of 0 to 1000 degrees Celsius, 41.276E-06V/degrees C. This value
@@ -374,16 +374,16 @@ DFLOAT MAX31855K::getITS90(const DFLOAT coldJunctionC, const DFLOAT voutMv) cons
 
 
 /*
-  Supports faster integer math when implimenting temperature control thresholds
-  for turning device on/off. Estamate a probeX10K value for matching a real
+  Supports faster integer math when implementing temperature control thresholds
+  for turning device on/off. Estimate a probeX10K value for matching a real
   temperature to the uncorrected nonlinear reading from the MAX31855K.
 
   Wide swings in ambient, Cold Junction, temperature will increase error
-  with this method. Infuence should be lessened if Hot-junction temperature
+  with this method. Influence should be lessened if Hot-junction temperature
   are larger than the Cold Junction temperature. The Cold Junction temperature
   becomes a smaller component in the equation.
 
-  A work-around would be to periodicly refresh the threshold calculations.
+  A work-around would be to periodically refresh the threshold calculations.
 */
 sint32_t MAX31855K::convertC2ProbeX10K(const DFLOAT hj, const DFLOAT cj) const
 {

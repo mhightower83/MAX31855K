@@ -40,7 +40,7 @@
 From NIST: https://srdata.nist.gov/its90/download/allcoeff.tab
 ***********************************************************************
 * This section contains coefficients for type K thermocouples for
-* the two subranges of temperature listed below. The coefficients
+* the two sub-ranges of temperature listed below. The coefficients
 * are in units of °C and mV and are listed in the order of constant
 * term up to the highest order. The equation below 0 °C is of the form
 * E = sum(i=0 to n) c_i t^i.
@@ -102,7 +102,7 @@ constexpr DFLOAT a2 PROGMEM =  0.126968600000E+03;
 //    inverse convert, thermocouple mV reading to a temperature in °C
 /*
   Summary:  One equation and three tables (sets) of coefficients yielding a
-  linearized temperature in Celsius from a voltage measument in mV. There are
+  linearized temperature in Celsius from a voltage measurement in mV. There are
   three sets of coefficients. Each set is tuned to convert a specific voltage
   range.
 
@@ -118,9 +118,9 @@ constexpr DFLOAT a2 PROGMEM =  0.126968600000E+03;
 From NIST: https://srdata.nist.gov/its90/download/allcoeff.tab
 ***********************************************************************
 * This section contains coefficients of approximate inverse
-* functions for type K thermocouples for the subranges of
+* functions for type K thermocouples for the sub-ranges of
 * temperature and voltage listed below. The range of errors of
-* the approximate inverse function for each subrange is also given.
+* the approximate inverse function for each sub-range is also given.
 * The coefficients are in units of °C and mV and are listed in
 * the order of constant term up to the highest order.
 * The equation is of the form t_90 = d_0 + d_1*E + d_2*E^2 + ...

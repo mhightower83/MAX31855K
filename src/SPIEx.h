@@ -3,19 +3,19 @@
  *
  * Adds support for a transfer32 method.
  * Replacement for the transfer16 method. Does SPI transfer16 as a single 16-bit transfer. Not two bytes.
- * SPI Class wrapper to manaage CS
+ * SPI Class wrapper to manage CS
  *
  * This class is intended for use with SPI_PINS_HSPI, normal HSPI mode.
  * Do not use if you need or plan to use SPI_PINS_HSPI_OVERLAP
  * Normal HSPI mode (MISO = GPIO12, MOSI = GPIO13, SCLK = GPIO14);
- * I see no way to support both similtaniously.
+ * I see no way to support both simultaneously.
  *
  * To support multiple HSPI devices with different CS pins, create a new class
  * instantiation for each CS pin used.
  *
  * There are some issues with CS and transfer size:
  *   https://github.com/esp8266/Arduino/pull/6423#issuecomment-523473404
- *   https://github.com/esp8266/Arduino/issues/6417#issuecomment-522224896 - very good desciption of th eissues.
+ *   https://github.com/esp8266/Arduino/issues/6417#issuecomment-522224896 - very good description of the issue.
  *   https://github.com/esp8266/Arduino/issues/7926
  *   https://github.com/esp8266/Arduino/issues/2820
  *   https://github.com/esp8266/Arduino/pull/6423 - looks like it was silently closed by author
@@ -40,7 +40,7 @@
 static ALWAYS_INLINE
 void _fastDigitalWrite(uint8_t pin, uint8_t val) {
     // Same as core's __digitalWrite, but w/o the Waveform stops. We will call
-    // the orginal digitalWrite at the start of SPI to get those things done.
+    // the original digitalWrite at the start of SPI to get those things done.
     //
     // stopWaveform(pin); // Disable any Tone or startWaveform on this pin
     // _stopPWM(pin);     // and any analogWrites (PWM)
@@ -74,11 +74,11 @@ private:
 public:
     SPIExClass() { _cs = 255u; }
     /*
-     * pins acknowleges that the pin assignment specified supports Hardware SPI.
+     * pins acknowledges that the pin assignment specified supports Hardware SPI.
      * Two configurations are available on the ESP8266 for HSPI.  Normal HSPI
      * mode (MISO = GPIO12, MOSI = GPIO13, SCLK = GPIO14) and overlapped HSPI.
      * Overlapped HSPI is not supported by this SPI Extension wrapper Class.
-     * On success, this class will always impliment Soft CS support for the
+     * On success, this class will always implement Soft CS support for the
      * specified GPIO value in `ss`.
      */
     bool pins(int8_t sck, int8_t miso, int8_t mosi, int8_t ss) {
@@ -126,8 +126,8 @@ public:
             _fastDigitalWrite(_cs, LOW);     // select
             // TODO: ESP8266: Needs retesting for 80/160Mhz CPU clock when using _fastDigitalWrite().
             //?? Due to processor execution time the 100ns delay after CS# is
-            //?? fullfilled by the code that must run to setup the SPI transfer.
-            //?? Hense, these delays are NOOPs for the ESP8266 build.
+            //?? fulfilled by the code that must run to setup the SPI transfer.
+            //?? Hence, these delays are NOOPs for the ESP8266 build.
             //?? delay100nsMin(); // wait time for first bit valid
         }
         SPI1W0 = data;

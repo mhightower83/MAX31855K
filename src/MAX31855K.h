@@ -16,11 +16,11 @@
 /*
   Clarification on word usage: "corrected" vs "compensated".
 
-  I use (linear) "corrected" when refering to the linearized correction applied
+  I use (linear) "corrected" when referring to the linearized correction applied
   to the thermocouple's non-linear response.
 
-  "compensated" is used when refering to the adding in of the Cold-Junction
-  temperature measurment to the  Hot-Junction measument to make it realtive to a
+  "compensated" is used when referring to the adding in of the Cold-Junction
+  temperature measurement to the  Hot-Junction measurement to make it relative to a
   Cold-Junction temperature of 0 degrees Celsius.
 */
 #ifndef MAX31855K_H
@@ -70,7 +70,7 @@ public:
         softCs     = true;
         // Auto select HW SPI if pins are correct.
         // MAX31855 is a read-only SPI device, MOSI is only needed to complete
-        // the Hardware SPI interface selection vs Sofware driven SPI interface.
+        // the Hardware SPI interface selection vs Software driven SPI interface.
         if (_autoHw && 14 == sck && 12 == miso && 13 == mosi) {
             hw = true;
             if (15 == cs) {
@@ -123,7 +123,7 @@ ALWAYS_INLINE constexpr DFLOAT fahrenheit2Celsius(const DFLOAT f) { if (FLT_MAX 
 constexpr sint32_t kProbeX10K    = sint32X10K(DFLOAT(0.25));    // Thermocouple data resolution * 10000
 constexpr sint32_t kInternalX10K = sint32X10K(DFLOAT(0.0625));  // Cold-Junction temperature data resolution * 10000
 // Over the range: 0 to 1000 degrees for Type K thermocouple. "kTypeKSensitivityVoC"
-// could be calculated with type_k_celsius_to_mv(1000.) * 1.0E-03 / 1000.;
+// could be calculated with type_k_Celsius_to_mv(1000.) * 1.0E-03 / 1000.;
 // This is a straight line fit to nonlinear data.
 constexpr DFLOAT kTypeKSensitivityVoC = 41.276E-06; // Use constant specified in the MAX313855K datasheet.
 
@@ -237,7 +237,7 @@ public:
     bool isValid(uint32_t raw_u32) const {
         return
             0u == (ERROR_MASK & raw_u32)
-        &&  0u != raw_u32    // This is a possible value; however, not very plausable.
+        &&  0u != raw_u32    // This is a possible value; however, not very plausible.
         && ~0u != raw_u32;
     }
     bool isValid() const {
