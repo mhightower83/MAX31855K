@@ -1,5 +1,18 @@
 #include <Arduino.h>
-#include <debugHelper.h>
+//#include <debugHelper.h>
+#ifndef DEBUGHELPER_H_
+// Fail safe defines, for when debugHelper.h is not present
+#ifndef CONSOLE_PRINTF
+#define DEBUG_PRINTF CONSOLE_PRINTF
+#define CONSOLE_PRINTF(a, ...) Serial.printf_P(PSTR(a), ##__VA_ARGS__)
+#endif
+#ifdef DEBUG_ESP_PORT
+#define CONSOLE DEBUG_ESP_PORT
+#else
+#define CONSOLE Serial
+#endif
+#endif
+
 #include <MAX31855K.h>
 #include <TypeK_ITS90.h>
 MAX31855K max31855k;
