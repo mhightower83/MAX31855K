@@ -19,6 +19,6 @@ On the ESP8266 when using HSPI with hardware CS, be very careful with GPIO15 as 
 
 [Boards](https://github.com/mhightower83/MAX31855K/wiki/Boards)
 
-[Troubleshooting](Troubleshooting#troubleshooting)
+[Troubleshooting](https://github.com/mhightower83/MAX31855K/wiki/Troubleshooting)
 
 [References](https://github.com/mhightower83/MAX31855K/wiki/References)
