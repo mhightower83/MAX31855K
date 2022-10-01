@@ -1,4 +1,3 @@
-# WIP
 ## MAX31855K Library
 Cloning not recommended at this time, may have a rebase in the future. Use the zip file for now.
 
