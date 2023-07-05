@@ -1,6 +1,4 @@
 ## MAX31855K Library
-Cloning not recommended at this time, may have a rebase in the future. Use the zip file for now.
-
 
 At this time I leave all the minutiae details of this MAX31855K Library to the source code. Start with the `MAX31855K.h` file.
 
